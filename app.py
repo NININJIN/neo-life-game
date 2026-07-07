@@ -3870,7 +3870,12 @@ elif view == "統計":
 
             # 時期別サマリー
             if full_n >= 9:
-                cuts = np.array_split(df, 3)
+                # Streamlit Cloud の pandas/numpy 環境では、np.array_split(df, 3) が
+                # DataFrame ではなく ndarray を返す場合がある。
+                # その場合 block.columns が存在せず AttributeError になるため、
+                # DataFrame の iloc で明示的に3分割する。
+                cut_points = np.linspace(0, len(df), 4, dtype=int)
+                cuts = [df.iloc[cut_points[i]:cut_points[i + 1]].copy() for i in range(3)]
                 names = ["前期", "中期", "後期"]
                 phase_rows = []
                 prev = None
