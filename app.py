@@ -12,7 +12,8 @@ except Exception:
     HAS_ALTAIR = False
 
 st.set_page_config(page_title="ネオライフゲーム", layout="wide")
-st.title("ネオライフゲーム：遺伝子・哲学個体・生態系モデル")
+st.title("ネオライフゲーム v20：比較実験・遺伝子フロー・哲学個体")
+st.caption("通常個体を対照群にし、哲学的行動方針・生態補正・捕食/密度/近親回避を同じseedで比較し、どの条件が遺伝子頻度と個体群維持を動かすかを読む実験UIです。")
 
 st.markdown("""
 <style>
@@ -105,11 +106,16 @@ PHASES = ["① 発生", "② 認識", "③ 思考", "④ 行動", "⑤ 生死"]
 # 1 ストア型：外部条件に過剰反応せず、危険下でも自己保存を安定させる。
 # 2 デカルト型：疑わしいものを避け、明確な利得・安全性・自己保存を重視する。
 # 3 カント型：短期利得だけでなく、規則性・非搾取・持続可能性を重視する。
+NORMAL_PHILO_VALUE = 4
+PHILO_TYPE_COUNT = 5
+PHILOSOPHY_VALUES = (0, 1, 2, 3)
+
 PHILO_LABELS = {
     0: "ヒューム型",
     1: "ストア型",
     2: "デカルト型",
     3: "カント型",
+    4: "通常個体",
 }
 
 PHILO_THEORY = {
@@ -117,6 +123,7 @@ PHILO_THEORY = {
     1: "ストア型（Epictetus/Marcus Aurelius）：外部環境の変動に振り回されず、危険回避・自己制御・生存安定を重視する。",
     2: "デカルト型（Descartes）：方法的懐疑の操作的モデル。曖昧な期待値より、明確な利得・安全性・自己保存を重視する。",
     3: "カント型（Kant）：規則性・普遍化可能性の操作的モデル。短期的な搾取より、非搾取・安定繁殖・持続可能な行動を重視する。",
+    4: "通常個体：哲学的な補正を持たない中立個体。哲学型が有利なのか、単に中立行動と同等なのかを比較する対照群。",
 }
 
 def philo_active_values():
@@ -145,12 +152,64 @@ def philo_choice_values_probs():
     probs = weights / weights.sum()
     return np.array(vals, dtype=np.int8), probs
 
+
+def philo_index(value):
+    """統計配列用の安全な哲学/通常個体インデックス。"""
+    try:
+        v = int(value)
+    except Exception:
+        return int(NORMAL_PHILO_VALUE)
+    if 0 <= v < int(PHILO_TYPE_COUNT):
+        return v
+    return int(NORMAL_PHILO_VALUE)
+
+
+def make_initial_philo_array(rng, n):
+    """通常個体と哲学個体を、初期割合に従って厳密に生成する。"""
+    n = int(n)
+    if n <= 0:
+        return np.array([], dtype=np.int8)
+    vals, probs = philo_choice_values_probs()
+    arr = rng.choice(vals, size=n, replace=True, p=probs).astype(np.int8)
+    normal_pct = float(globals().get('initial_normal_pct', 80))
+    normal_n = int(round(n * np.clip(normal_pct, 0.0, 100.0) / 100.0))
+    normal_n = max(0, min(n, normal_n))
+    if normal_n > 0:
+        normal_idx = rng.choice(n, size=normal_n, replace=False)
+        arr[normal_idx] = int(NORMAL_PHILO_VALUE)
+    return arr.astype(np.int8)
+
 PHILO_STAT_KEYS = [
     "stat_philo_birth_reserved", "stat_philo_birth_real", "stat_philo_death",
     "stat_philo_gather_gain", "stat_philo_move_cost", "stat_philo_upkeep_cost",
     "stat_philo_mate_attempt", "stat_philo_mate_success",
     "stat_philo_predation_attempt", "stat_philo_predation_success", "stat_philo_predation_fail",
     "stat_philo_predation_gain", "stat_philo_battle_gain", "stat_philo_battle_cost",
+    # v19：親としてどれだけ子の発生に参加したか。子として増えた数とは分けて見る。
+    "stat_philo_parent_offspring_reserved", "stat_philo_parent_offspring_real",
+]
+
+# ③思考で選ばれた行動。
+# 「なぜその遺伝子が増えたか」を見るには、出生・死亡だけでなく行動選択の偏りが必要。
+PHILO_ACTION_LABELS = {
+    0: "待機",
+    1: "移動",
+    2: "採取",
+    3: "戦闘",
+    4: "回避",
+    5: "交尾",
+    6: "捕食",
+}
+
+# v19：親子の遺伝子フロー用。
+# pair は親組み合わせ、parent_to_child は親の型がどの子型を生んだか、source_to_child は実際に子へコピーされた型。
+PHILO_MATRIX_STAT_KEYS = [
+    "stat_philo_pair_reserved",
+    "stat_philo_pair_real",
+    "stat_philo_parent_to_child_reserved",
+    "stat_philo_parent_to_child_real",
+    "stat_philo_source_to_child_reserved",
+    "stat_philo_source_to_child_real",
 ]
 
 # -------------------------
@@ -325,6 +384,9 @@ with st.sidebar:
     st.subheader("哲学遺伝子（行動評価関数）")
     enable_philo_gene = st.checkbox("哲学遺伝子を行動に反映する", value=True)
     philo_effect = st.slider("哲学遺伝子の影響強度", 0.0, 2.0, 1.0, 0.05)
+    initial_normal_pct = st.slider("初期：通常個体割合（%）", 0, 100, 80, 1)
+    st.caption("v20では通常個体も遺伝子フロー表・比較実験に入ります。80%なら、哲学型は20%ぶんの中で初期重みに従って発生します。")
+    st.caption("通常個体は哲学的な行動補正を持たない中立対照群です。初期値は80%です。")
 
     with st.expander("哲学型のON/OFF・初期重み", expanded=True):
         st.caption("OFFにした型は初期個体にも、古い個体群の補修にも使われません。全OFFなら安全のためヒューム型だけにします。")
@@ -361,8 +423,8 @@ with st.sidebar:
     st.divider()
     st.subheader("高速化")
     fast_thinking = st.checkbox("思考計算を高速化する", value=True)
-    mate_search_radius_cap = st.slider("配偶者探索の最大半径（高速化用）", 1, 12, 5, 1)
-    max_history_keep = st.slider("統計履歴の保存上限（世代）", 100, 2000, 500, 100)
+    mate_search_radius_cap = st.slider("配偶者探索の最大半径（高速化用）", 1, 10, 4, 1)
+    max_history_keep = st.slider("統計履歴の保存上限（世代）", 100, 1500, 300, 100)
     st.caption("高速化ONでは、行動ルールはほぼ同じまま、配偶者探索を全個体総当たりから近傍探索へ切り替えます。")
 
     st.divider()
@@ -589,18 +651,16 @@ def ensure_ecology_arrays(w):
         w["gene_predation"] = w["gene_predation"].astype(np.int8)
 
     if "gene_philo" not in w or len(w.get("gene_philo", [])) != n:
-        # 古い世界の場合は、ONになっている哲学型だけから補う
+        # 古い世界の場合は、通常個体割合を含めて補う。
         rng_fix = np.random.default_rng(12345 + n)
-        vals, probs = philo_choice_values_probs()
-        w["gene_philo"] = rng_fix.choice(vals, size=n, replace=True, p=probs).astype(np.int8)
+        w["gene_philo"] = make_initial_philo_array(rng_fix, n)
     else:
         arr = w["gene_philo"].astype(np.int8)
-        vals, probs = philo_choice_values_probs()
-        active = set(int(v) for v in vals.tolist())
-        invalid = np.array([int(x) not in active for x in arr], dtype=bool)
+        valid_values = set(range(int(PHILO_TYPE_COUNT)))
+        invalid = np.array([int(x) not in valid_values for x in arr], dtype=bool)
         if invalid.any():
             rng_fix = np.random.default_rng(54321 + n)
-            arr[invalid] = rng_fix.choice(vals, size=int(invalid.sum()), replace=True, p=probs).astype(np.int8)
+            arr[invalid] = make_initial_philo_array(rng_fix, int(invalid.sum()))
         w["gene_philo"] = arr
 
     if "prev_contest_counts" not in w:
@@ -608,7 +668,7 @@ def ensure_ecology_arrays(w):
     if "prev_predation_counts" not in w:
         w["prev_predation_counts"] = np.bincount(w.get("gene_predation", np.array([], dtype=np.int8)).astype(np.int32), minlength=2).astype(np.int32)
     if "prev_philo_counts" not in w:
-        w["prev_philo_counts"] = np.bincount(w.get("gene_philo", np.array([], dtype=np.int8)).astype(np.int32), minlength=4).astype(np.int32)
+        w["prev_philo_counts"] = np.bincount(w.get("gene_philo", np.array([], dtype=np.int8)).astype(np.int32), minlength=PHILO_TYPE_COUNT).astype(np.int32)
     if "prev_pop_count_for_W" not in w:
         w["prev_pop_count_for_W"] = int(n)
 
@@ -624,10 +684,24 @@ def ensure_ecology_arrays(w):
 
     # 哲学遺伝子別のイベント統計。4型ぶんのベクトルで保持する。
     for key in PHILO_STAT_KEYS:
-        if key not in w or np.asarray(w.get(key, [])).size != 4:
-            w[key] = np.zeros(4, dtype=np.int32)
+        if key not in w or np.asarray(w.get(key, [])).size != PHILO_TYPE_COUNT:
+            w[key] = np.zeros(PHILO_TYPE_COUNT, dtype=np.int32)
         else:
             w[key] = np.asarray(w[key], dtype=np.int32)
+
+    # v19：親子フロー・行動選択の世代内統計。
+    for key in PHILO_MATRIX_STAT_KEYS:
+        arr = np.asarray(w.get(key, []))
+        if key not in w or arr.shape != (PHILO_TYPE_COUNT, PHILO_TYPE_COUNT):
+            w[key] = np.zeros((PHILO_TYPE_COUNT, PHILO_TYPE_COUNT), dtype=np.int32)
+        else:
+            w[key] = arr.astype(np.int32)
+
+    arr = np.asarray(w.get("stat_philo_action_counts", []))
+    if "stat_philo_action_counts" not in w or arr.shape != (PHILO_TYPE_COUNT, len(PHILO_ACTION_LABELS)):
+        w["stat_philo_action_counts"] = np.zeros((PHILO_TYPE_COUNT, len(PHILO_ACTION_LABELS)), dtype=np.int32)
+    else:
+        w["stat_philo_action_counts"] = arr.astype(np.int32)
 
 def kinship_score(w, a, b):
     """0=ほぼ無関係, 0.5=同系統, 0.75以上=親子・きょうだい相当の近縁。"""
@@ -702,7 +776,9 @@ def philo_action_modifiers(philo_value):
     if not bool(globals().get('enable_philo_gene', True)):
         return neutral
 
-    p = int(philo_value)
+    p = philo_index(philo_value)
+    if p == int(NORMAL_PHILO_VALUE):
+        return neutral
 
     if p == 0:
         # ヒューム型：経験・局所観察を重視。見えている資源には敏感だが、抽象的リスクで過剰に行動を止めない。
@@ -713,9 +789,11 @@ def philo_action_modifiers(philo_value):
     elif p == 2:
         # デカルト型：疑わしい選択を抑え、明確な利得・安全性・自己保存を重視する。
         raw = (1.05, 1.30, -2.0, -0.5, -2.5, 2.0)
-    else:
+    elif p == 3:
         # カント型：短期的搾取より、規則性・非搾取・持続可能な繁殖を重視する。
         raw = (1.00, 1.15, -5.0, 3.0, -5.0, 1.0)
+    else:
+        return neutral
 
     e = float(globals().get('philo_effect', 1.0))
     return tuple(float(neutral[i]) + e * (float(raw[i]) - float(neutral[i])) for i in range(6))
@@ -752,9 +830,8 @@ def reset_world():
     # 捕食傾向遺伝子（0=通常採食寄り, 1=捕食も選びやすい）
     gene_predation = (rng.random(n) < (float(predation_gene_init_pct) / 100.0)).astype(np.int8)
 
-    # 哲学的行動遺伝子：ONになっている型だけから初期生成する
-    philo_vals, philo_probs = philo_choice_values_probs()
-    gene_philo = rng.choice(philo_vals, size=n, replace=True, p=philo_probs).astype(np.int8)
+    # 哲学的行動遺伝子 + 通常個体：通常個体は中立行動の対照群として一定割合だけ初期生成する。
+    gene_philo = make_initial_philo_array(rng, n)
 
     lo, hi = int(init_bag_min), int(init_bag_max)
     if hi < lo:
@@ -806,7 +883,7 @@ def reset_world():
         # 遺伝子頻度の世代間変化・適応度Wを計算するための前世代コピー数
         "prev_contest_counts": np.bincount(gene_contest.astype(np.int32), minlength=2).astype(np.int32),
         "prev_predation_counts": np.bincount(gene_predation.astype(np.int32), minlength=2).astype(np.int32),
-        "prev_philo_counts": np.bincount(gene_philo.astype(np.int32), minlength=4).astype(np.int32),
+        "prev_philo_counts": np.bincount(gene_philo.astype(np.int32), minlength=PHILO_TYPE_COUNT).astype(np.int32),
         "prev_pop_count_for_W": int(n),
 
         "pending_births": [],
@@ -892,7 +969,9 @@ def reset_world():
         "stat_predation_fail": 0,
         "stat_predation_gain": 0,
         "stat_predation_kill": 0,
-        **{key: np.zeros(4, dtype=np.int32) for key in PHILO_STAT_KEYS},
+        **{key: np.zeros(PHILO_TYPE_COUNT, dtype=np.int32) for key in PHILO_STAT_KEYS},
+        **{key: np.zeros((PHILO_TYPE_COUNT, PHILO_TYPE_COUNT), dtype=np.int32) for key in PHILO_MATRIX_STAT_KEYS},
+        "stat_philo_action_counts": np.zeros((PHILO_TYPE_COUNT, len(PHILO_ACTION_LABELS)), dtype=np.int32),
     }
 
     st.session_state.gen = 0
@@ -914,7 +993,7 @@ def signature():
         int(density_radius), int(density_birth_capacity), float(density_birth_penalty),
         float(local_resource_bonus), float(density_resource_penalty),
         float(kin_avoid_strength), float(kin_avoid_threshold),
-        bool(enable_philo_gene), float(philo_effect),
+        bool(enable_philo_gene), float(philo_effect), int(initial_normal_pct),
         bool(philo_enable_hume), bool(philo_enable_stoic), bool(philo_enable_descartes), bool(philo_enable_kant),
         int(philo_weight_hume), int(philo_weight_stoic), int(philo_weight_descartes), int(philo_weight_kant),
         bool(enable_predation), int(predation_gene_init_pct),
@@ -1065,7 +1144,7 @@ def phase1_spawn_and_birth():
             new_sex.append(int(child.get("sex", 0)))
             new_gene.append(int(child.get("gene", 1)))
             new_gene_pred.append(int(child.get("gene_predation", 0)))
-            new_gene_philo.append(int(child.get("gene_philo", 0)))
+            new_gene_philo.append(philo_index(child.get("gene_philo", NORMAL_PHILO_VALUE)))
             new_uid.append(child_uid)
             new_pa.append(int(child.get("parent_a", -1)))
             new_pb.append(int(child.get("parent_b", -1)))
@@ -1075,8 +1154,21 @@ def phase1_spawn_and_birth():
             local_density[ny, nx] += 1
             w["evt_birth"].append((ny, nx))
             w["births"] += 1
-            child_philo = int(np.clip(int(child.get("gene_philo", 0)), 0, 3))
+            child_philo = philo_index(child.get("gene_philo", NORMAL_PHILO_VALUE))
             w["stat_philo_birth_real"][child_philo] += 1
+
+            # v19：予約だけでなく、実際に空きマスへ置かれた出生の親子フローも記録する。
+            ph_a_child = philo_index(child.get("parent_philo_a", NORMAL_PHILO_VALUE))
+            ph_b_child = philo_index(child.get("parent_philo_b", NORMAL_PHILO_VALUE))
+            ph_source_child = philo_index(child.get("source_philo", child_philo))
+            w["stat_philo_parent_offspring_real"][ph_a_child] += 1
+            w["stat_philo_parent_offspring_real"][ph_b_child] += 1
+            pair_lo, pair_hi = sorted((int(ph_a_child), int(ph_b_child)))
+            w["stat_philo_pair_real"][pair_lo, pair_hi] += 1
+            w["stat_philo_parent_to_child_real"][ph_a_child, child_philo] += 1
+            w["stat_philo_parent_to_child_real"][ph_b_child, child_philo] += 1
+            w["stat_philo_source_to_child_real"][ph_source_child, child_philo] += 1
+
             if int(child.get("gene", 1)) == 0:
                 w["stat_birth_real_hawk"] += 1
             else:
@@ -1151,7 +1243,7 @@ def phase3_thinking():
     sex = w["sex"]
     direction = w["dir"]
     gene_predation = w.get("gene_predation", np.zeros(len(xs), dtype=np.int8))
-    gene_philo = w.get("gene_philo", np.zeros(len(xs), dtype=np.int8))
+    gene_philo = w.get("gene_philo", np.full(len(xs), NORMAL_PHILO_VALUE, dtype=np.int8))
     resource = w["resource"]
     biome_id = w["biome_id"]
 
@@ -1432,6 +1524,16 @@ def phase3_thinking():
             intent_x[i] = int(best_x)
             intent_act[i] = int(best_a)
 
+    # v19：哲学/通常型ごとの「思考結果として選ばれた行動」を記録する。
+    # これにより、型の増減を出生・死亡だけでなく、採取/交尾/回避/捕食などの行動偏りから説明できる。
+    action_counts = np.zeros((PHILO_TYPE_COUNT, len(PHILO_ACTION_LABELS)), dtype=np.int32)
+    gp_safe = np.array([philo_index(v) for v in gene_philo], dtype=np.int32)
+    for ph_i in range(PHILO_TYPE_COUNT):
+        mask = gp_safe == int(ph_i)
+        if mask.any():
+            action_counts[ph_i] = np.bincount(intent_act[mask].astype(np.int32), minlength=len(PHILO_ACTION_LABELS)).astype(np.int32)[:len(PHILO_ACTION_LABELS)]
+    w["stat_philo_action_counts"] = action_counts
+
     w["intent_y"] = intent_y.astype(np.int32)
     w["intent_x"] = intent_x.astype(np.int32)
     w["intent_act"] = intent_act.astype(np.int8)
@@ -1483,8 +1585,8 @@ def battle_pair(i, j, w, rng):
 
     gene_philo = w.get("gene_philo", None)
     if gene_philo is not None and int(transfer) > 0:
-        ph_w = int(np.clip(int(gene_philo[winner]), 0, 3))
-        ph_l = int(np.clip(int(gene_philo[loser]), 0, 3))
+        ph_w = philo_index(gene_philo[winner])
+        ph_l = philo_index(gene_philo[loser])
         w["stat_philo_battle_gain"][ph_w] += int(transfer)
         w["stat_philo_battle_cost"][ph_l] += int(transfer)
 
@@ -1789,10 +1891,10 @@ def phase4_action():
     moved_intent = (intent_y != ys) | (intent_x != xs)
     bag[moved_intent] -= int(move_cost)
     w["stat_move_cost_paid"] += int(move_cost) * int(moved_intent.sum())
-    gene_philo_move = w.get("gene_philo", np.zeros(n, dtype=np.int8))
+    gene_philo_move = w.get("gene_philo", np.full(n, NORMAL_PHILO_VALUE, dtype=np.int8))
     if int(move_cost) > 0 and n > 0:
         w["stat_philo_move_cost"] += (
-            np.bincount(gene_philo_move[moved_intent].astype(np.int32), minlength=4).astype(np.int32)
+            np.bincount(gene_philo_move[moved_intent].astype(np.int32), minlength=PHILO_TYPE_COUNT).astype(np.int32)
             * int(move_cost)
         )
 
@@ -1888,7 +1990,7 @@ def phase4_action():
             j = int(best_j)
             already_targeted.add(j)
             w["stat_predation_attempt"] += 1
-            ph_i = int(np.clip(int(w.get("gene_philo", np.zeros(n, dtype=np.int8))[i]), 0, 3))
+            ph_i = philo_index(w.get("gene_philo", np.full(n, NORMAL_PHILO_VALUE, dtype=np.int8))[i])
             w["stat_philo_predation_attempt"][ph_i] += 1
             p_win = predation_success_probability(int(w["strength"][i]), int(w["strength"][j]), int(bag[i]), int(bag[j]))
 
@@ -1969,8 +2071,8 @@ def phase4_action():
 
                 done_pairs.add(pair_key)
                 w["stat_mate_attempt"] += 1
-                ph_a = int(np.clip(int(gene_philo[a]), 0, 3))
-                ph_b = int(np.clip(int(gene_philo[b]), 0, 3))
+                ph_a = philo_index(gene_philo[a])
+                ph_b = philo_index(gene_philo[b])
                 w["stat_philo_mate_attempt"][ph_a] += 1
                 w["stat_philo_mate_attempt"][ph_b] += 1
 
@@ -2035,8 +2137,14 @@ def phase4_action():
                 child_gene_pred = int(gene_pred[a]) if (rng.random() < 0.5) else int(gene_pred[b])
 
                 # 哲学的行動遺伝子も、親のどちらかからそのまま継承する。
+                # v19では「どちらの親型から子型へコピーされたか」を記録する。
                 # 突然変異の分布変更はまだ入れないため、ここでは新しい哲学型は生成しない。
-                child_gene_philo = int(gene_philo[a]) if (rng.random() < 0.5) else int(gene_philo[b])
+                if rng.random() < 0.5:
+                    child_gene_philo = int(gene_philo[a])
+                    child_source_philo = philo_index(gene_philo[a])
+                else:
+                    child_gene_philo = int(gene_philo[b])
+                    child_source_philo = philo_index(gene_philo[b])
 
                 mother = a if int(sex[a]) == 1 else (b if int(sex[b]) == 1 else a)
                 py, px = int(ys[mother]), int(xs[mother])
@@ -2056,6 +2164,9 @@ def phase4_action():
                     "gene_philo": int(child_gene_philo),
                     "parent_a": int(uid[a]),
                     "parent_b": int(uid[b]),
+                    "parent_philo_a": int(ph_a),
+                    "parent_philo_b": int(ph_b),
+                    "source_philo": int(child_source_philo),
                     "lineage": int(child_lineage),
                 })
 
@@ -2064,8 +2175,20 @@ def phase4_action():
                 else:
                     w["stat_birth_reserved_dove"] += 1
 
-                child_philo_idx = int(np.clip(int(child_gene_philo), 0, 3))
+                child_philo_idx = philo_index(child_gene_philo)
                 w["stat_philo_birth_reserved"][child_philo_idx] += 1
+
+                # v19：親子フロー。
+                # 「子として増えた型」と「親として子を残した型」を分けることで、
+                # 比率上昇の原因が親側の繁殖成功か、死亡回避か、相対的残存かを読みやすくする。
+                w["stat_philo_parent_offspring_reserved"][ph_a] += 1
+                w["stat_philo_parent_offspring_reserved"][ph_b] += 1
+                pair_lo, pair_hi = sorted((int(ph_a), int(ph_b)))
+                w["stat_philo_pair_reserved"][pair_lo, pair_hi] += 1
+                w["stat_philo_parent_to_child_reserved"][ph_a, child_philo_idx] += 1
+                w["stat_philo_parent_to_child_reserved"][ph_b, child_philo_idx] += 1
+                w["stat_philo_source_to_child_reserved"][child_source_philo, child_philo_idx] += 1
+
                 w["stat_mate_success"] += 1
                 w["stat_philo_mate_success"][ph_a] += 1
                 w["stat_philo_mate_success"][ph_b] += 1
@@ -2091,7 +2214,7 @@ def phase4_action():
                 bag[i] += take
 
             w["stat_gathered"] += int(take)
-            ph_i = int(np.clip(int(w.get("gene_philo", np.zeros(n, dtype=np.int8))[i]), 0, 3))
+            ph_i = philo_index(w.get("gene_philo", np.full(n, NORMAL_PHILO_VALUE, dtype=np.int8))[i])
             w["stat_philo_gather_gain"][ph_i] += int(take)
             if int(gene[i]) == 0:
                 w["stat_gain_gather_hawk"] += int(take)
@@ -2162,11 +2285,11 @@ def log_generation():
     team = w["team"]
     gene = w["gene_contest"]
     gene_pred = w.get("gene_predation", np.zeros(n, dtype=np.int8))
-    gene_philo = w.get("gene_philo", np.zeros(n, dtype=np.int8))
+    gene_philo = w.get("gene_philo", np.full(n, NORMAL_PHILO_VALUE, dtype=np.int8))
 
     contest_counts = _safe_counts(gene, 2)
     pred_counts = _safe_counts(gene_pred, 2)
-    philo_counts = _safe_counts(gene_philo, 4)
+    philo_counts = _safe_counts(gene_philo, PHILO_TYPE_COUNT)
 
     prev_contest = np.asarray(w.get("prev_contest_counts", np.maximum(contest_counts, 1)), dtype=np.int32)
     prev_pred = np.asarray(w.get("prev_predation_counts", np.maximum(pred_counts, 1)), dtype=np.int32)
@@ -2253,7 +2376,12 @@ def log_generation():
         "カント型 W": float(W_philo[3]),
         "争奪遺伝子多様度（Simpson）": _gene_diversity_from_counts(contest_counts),
         "捕食遺伝子多様度（Simpson）": _gene_diversity_from_counts(pred_counts),
-        "哲学遺伝子多様度（Simpson）": _gene_diversity_from_counts(philo_counts),
+        "通常個体数（体）": normal_count,
+        "哲学個体数（体）": philosophy_count,
+        "通常個体割合（0-1）": float(normal_count) / max(int(n), 1),
+        "哲学個体割合（0-1）": float(philosophy_count) / max(int(n), 1),
+        "行動型多様度（通常含むSimpson）": _gene_diversity_from_counts(philo_counts),
+        "哲学遺伝子多様度（Simpson）": _gene_diversity_from_counts(philo_only_counts),
 
         # ===== 遺伝子別（タカ/ハト） =====
         "タカ 平均所持資源（単位/体）": _mean(bag[gene == 0]),
@@ -2455,6 +2583,56 @@ def log_generation():
             - int(w["stat_philo_battle_cost"][ph_i])
         )
 
+    # ===== v19/v20：親子遺伝子フロー・行動選択・チーム内分布 =====
+    action_counts = np.asarray(w.get("stat_philo_action_counts", np.zeros((PHILO_TYPE_COUNT, len(PHILO_ACTION_LABELS)), dtype=np.int32)), dtype=np.int32)
+    if action_counts.shape != (PHILO_TYPE_COUNT, len(PHILO_ACTION_LABELS)):
+        action_counts = np.zeros((PHILO_TYPE_COUNT, len(PHILO_ACTION_LABELS)), dtype=np.int32)
+
+    pair_reserved = np.asarray(w.get("stat_philo_pair_reserved", np.zeros((PHILO_TYPE_COUNT, PHILO_TYPE_COUNT), dtype=np.int32)), dtype=np.int32)
+    pair_real = np.asarray(w.get("stat_philo_pair_real", np.zeros((PHILO_TYPE_COUNT, PHILO_TYPE_COUNT), dtype=np.int32)), dtype=np.int32)
+    parent_child_reserved = np.asarray(w.get("stat_philo_parent_to_child_reserved", np.zeros((PHILO_TYPE_COUNT, PHILO_TYPE_COUNT), dtype=np.int32)), dtype=np.int32)
+    parent_child_real = np.asarray(w.get("stat_philo_parent_to_child_real", np.zeros((PHILO_TYPE_COUNT, PHILO_TYPE_COUNT), dtype=np.int32)), dtype=np.int32)
+    source_child_reserved = np.asarray(w.get("stat_philo_source_to_child_reserved", np.zeros((PHILO_TYPE_COUNT, PHILO_TYPE_COUNT), dtype=np.int32)), dtype=np.int32)
+    source_child_real = np.asarray(w.get("stat_philo_source_to_child_real", np.zeros((PHILO_TYPE_COUNT, PHILO_TYPE_COUNT), dtype=np.int32)), dtype=np.int32)
+
+    for ph_i, ph_label in PHILO_LABELS.items():
+        ph_i = int(ph_i)
+        row[f"{ph_label} 親参加:出生予約（回/世代）"] = int(w["stat_philo_parent_offspring_reserved"][ph_i])
+        row[f"{ph_label} 親参加:実出生（回/世代）"] = int(w["stat_philo_parent_offspring_real"][ph_i])
+        denom_ph = max(int(philo_counts[ph_i]), 1)
+        for act_i, act_label in PHILO_ACTION_LABELS.items():
+            act_i = int(act_i)
+            cnt_act = int(action_counts[ph_i, act_i])
+            row[f"{ph_label} 行動:{act_label}（体/世代）"] = cnt_act
+            row[f"{ph_label} 行動率:{act_label}（0-1）"] = float(cnt_act) / float(denom_ph)
+
+        # チーム内でどの型が多いか。赤青差がチーム色の効果なのか、哲学型の偏りなのかを分ける。
+        if n > 0:
+            red_mask_ph = (team == 0) & (gene_philo == ph_i)
+            blue_mask_ph = (team == 1) & (gene_philo == ph_i)
+            row[f"赤×{ph_label} 数（体）"] = int(red_mask_ph.sum())
+            row[f"青×{ph_label} 数（体）"] = int(blue_mask_ph.sum())
+            row[f"赤×{ph_label} 比率（赤内0-1）"] = float(red_mask_ph.sum()) / max(int((team == 0).sum()), 1)
+            row[f"青×{ph_label} 比率（青内0-1）"] = float(blue_mask_ph.sum()) / max(int((team == 1).sum()), 1)
+        else:
+            row[f"赤×{ph_label} 数（体）"] = 0
+            row[f"青×{ph_label} 数（体）"] = 0
+            row[f"赤×{ph_label} 比率（赤内0-1）"] = 0.0
+            row[f"青×{ph_label} 比率（青内0-1）"] = 0.0
+
+    for pi, plab in PHILO_LABELS.items():
+        for ci, clab in PHILO_LABELS.items():
+            row[f"親→子 予約:{plab}→{clab}（回/世代）"] = int(parent_child_reserved[int(pi), int(ci)])
+            row[f"親→子 実出生:{plab}→{clab}（回/世代）"] = int(parent_child_real[int(pi), int(ci)])
+            row[f"コピー元→子 予約:{plab}→{clab}（回/世代）"] = int(source_child_reserved[int(pi), int(ci)])
+            row[f"コピー元→子 実出生:{plab}→{clab}（回/世代）"] = int(source_child_real[int(pi), int(ci)])
+
+    for pi, plab in PHILO_LABELS.items():
+        for ci, clab in PHILO_LABELS.items():
+            if int(pi) <= int(ci):
+                row[f"親組合せ 予約:{plab}×{clab}（回/世代）"] = int(pair_reserved[int(pi), int(ci)])
+                row[f"親組合せ 実出生:{plab}×{clab}（回/世代）"] = int(pair_real[int(pi), int(ci)])
+
     st.session_state.history.append(row)
     if len(st.session_state.history) > int(max_history_keep):
         st.session_state.history = st.session_state.history[-int(max_history_keep):]
@@ -2497,7 +2675,10 @@ def log_generation():
         w[k] = 0
     w["stat_move_dist_sum"] = 0.0
     for key in PHILO_STAT_KEYS:
-        w[key] = np.zeros(4, dtype=np.int32)
+        w[key] = np.zeros(PHILO_TYPE_COUNT, dtype=np.int32)
+    for key in PHILO_MATRIX_STAT_KEYS:
+        w[key] = np.zeros((PHILO_TYPE_COUNT, PHILO_TYPE_COUNT), dtype=np.int32)
+    w["stat_philo_action_counts"] = np.zeros((PHILO_TYPE_COUNT, len(PHILO_ACTION_LABELS)), dtype=np.int32)
 
 def phase5_life_death():
     w = st.session_state.world
@@ -2534,7 +2715,7 @@ def phase5_life_death():
     w["stat_cost_upkeep_dove"] += int(int(upkeep_cost) * int((gene == 1).sum()))
     if n > 0 and int(upkeep_cost) > 0:
         w["stat_philo_upkeep_cost"] += (
-            np.bincount(gene_philo.astype(np.int32), minlength=4).astype(np.int32)
+            np.bincount(gene_philo.astype(np.int32), minlength=PHILO_TYPE_COUNT).astype(np.int32)
             * int(upkeep_cost)
         )
     bag = bag - int(upkeep_cost)
@@ -2549,7 +2730,7 @@ def phase5_life_death():
     w["stat_pop_dove_before_death"] = int((gene == 1).sum())
     w["stat_death_hawk"] = int(((gene == 0) & dead).sum())
     w["stat_death_dove"] = int(((gene == 1) & dead).sum())
-    w["stat_philo_death"] = np.bincount(gene_philo[dead].astype(np.int32), minlength=4).astype(np.int32)
+    w["stat_philo_death"] = np.bincount(gene_philo[dead].astype(np.int32), minlength=PHILO_TYPE_COUNT).astype(np.int32)
 
     if dead.any():
         for y, x in zip(ys[dead], xs[dead]):
@@ -4103,6 +4284,835 @@ elif view == "統計":
 """)
 
 
+
+    def show_v19_lineage_flow_summary():
+        """v19：親子フロー・行動フロー・チーム内偏りから、遺伝子の流れと因果候補を読む。"""
+        if len(df) < 2:
+            return
+
+        def _num(col):
+            if col not in df.columns:
+                return pd.Series(dtype=float)
+            return pd.to_numeric(df[col], errors="coerce")
+
+        def _sum(col):
+            s = _num(col).dropna()
+            return float(s.sum()) if len(s) else 0.0
+
+        def _mean(col):
+            s = _num(col).dropna()
+            return float(s.mean()) if len(s) else np.nan
+
+        def _last(col):
+            s = _num(col).dropna()
+            return float(s.iloc[-1]) if len(s) else np.nan
+
+        def _first(col):
+            s = _num(col).dropna()
+            return float(s.iloc[0]) if len(s) else np.nan
+
+        def _corr(a, b):
+            if a not in df.columns or b not in df.columns:
+                return np.nan
+            aa = _num(a); bb = _num(b)
+            m = aa.notna() & bb.notna()
+            if int(m.sum()) < 4:
+                return np.nan
+            if float(aa[m].std()) == 0.0 or float(bb[m].std()) == 0.0:
+                return np.nan
+            return float(aa[m].corr(bb[m]))
+
+        st.markdown("### 0.6) v19/v20 親子遺伝子フロー：どの型が、どの経路で増えたか")
+        st.caption("ここでは『現在多い型』ではなく、『親として子を残した型』『子として発生した型』『どの親組み合わせから生まれたか』『どの行動を選んだか』を分けて読みます。これにより、遺伝子頻度変化の原因候補をかなり細かく追えます。")
+
+        # 1) 親としての繁殖貢献と子としての増加
+        parent_rows = []
+        for lab in PHILO_LABELS.values():
+            count_col = f"{lab} 数（体）"
+            ratio_col = f"{lab} 比率（0-1）"
+            child_birth_col = f"{lab} 実出生（体/世代）"
+            death_col = f"{lab} 死亡（体/世代）"
+            parent_real_col = f"{lab} 親参加:実出生（回/世代）"
+            parent_reserved_col = f"{lab} 親参加:出生予約（回/世代）"
+            exposure = _sum(count_col)
+            parent_real = _sum(parent_real_col)
+            parent_reserved = _sum(parent_reserved_col)
+            child_birth = _sum(child_birth_col)
+            death_total = _sum(death_col)
+            first_ratio = _first(ratio_col)
+            last_ratio = _last(ratio_col)
+            per_capita_parent = parent_real / max(exposure, 1.0)
+            per_capita_child = child_birth / max(exposure, 1.0)
+            parent_to_child_gap = parent_real - child_birth
+            why = []
+            if per_capita_parent > 0.08:
+                why.append("親として子を残す効率が高い")
+            elif per_capita_parent < 0.03:
+                why.append("親として子を残す効率が低い")
+            else:
+                why.append("親としての繁殖効率は中程度")
+            if child_birth > death_total:
+                why.append("子としての増加が死亡を上回る")
+            elif child_birth < death_total:
+                why.append("死亡が子としての増加を上回る")
+            if not np.isnan(first_ratio) and not np.isnan(last_ratio):
+                if last_ratio > first_ratio + 0.03:
+                    why.append("頻度は上昇")
+                elif last_ratio < first_ratio - 0.03:
+                    why.append("頻度は低下")
+                else:
+                    why.append("頻度はおおむね維持")
+            if parent_to_child_gap > 0:
+                why.append("混合ペアや相手側コピーにより、親参加ほど自型の子は増えていない可能性")
+            parent_rows.append({
+                "型": lab,
+                "初期比率": first_ratio,
+                "最新比率": last_ratio,
+                "比率変化": (last_ratio - first_ratio) if not (np.isnan(first_ratio) or np.isnan(last_ratio)) else np.nan,
+                "全期間親参加:出生予約": parent_reserved,
+                "全期間親参加:実出生": parent_real,
+                "全期間子として実出生": child_birth,
+                "全期間死亡": death_total,
+                "子出生-死亡": child_birth - death_total,
+                "親繁殖効率/個体世代": per_capita_parent,
+                "子発生効率/個体世代": per_capita_child,
+                "読み取り": "、".join(why),
+            })
+        parent_df = pd.DataFrame(parent_rows).sort_values("親繁殖効率/個体世代", ascending=False)
+        st.markdown("#### A. 親として残したコピー / 子として増えたコピー")
+        st.dataframe(parent_df, use_container_width=True, hide_index=True, column_config={
+            "初期比率": st.column_config.NumberColumn(format="%.3f"),
+            "最新比率": st.column_config.NumberColumn(format="%.3f"),
+            "比率変化": st.column_config.NumberColumn(format="%+.3f"),
+            "全期間親参加:出生予約": st.column_config.NumberColumn(format="%.0f"),
+            "全期間親参加:実出生": st.column_config.NumberColumn(format="%.0f"),
+            "全期間子として実出生": st.column_config.NumberColumn(format="%.0f"),
+            "全期間死亡": st.column_config.NumberColumn(format="%.0f"),
+            "子出生-死亡": st.column_config.NumberColumn(format="%+.0f"),
+            "親繁殖効率/個体世代": st.column_config.NumberColumn(format="%.4f"),
+            "子発生効率/個体世代": st.column_config.NumberColumn(format="%.4f"),
+        })
+        if len(parent_df):
+            top_parent = parent_df.iloc[0]
+            low_parent = parent_df.iloc[-1]
+            explain_box(
+                "親子フローの中心解釈",
+                f"親として最も子を残しやすい型は **{top_parent['型']}** です。なぜなら、全期間の個体存在量で割った親繁殖効率が最も高いからです。逆に **{low_parent['型']}** は親としての繁殖効率が低く、たとえ一時的に生存してもコピー数を増やしにくい可能性があります。\n\n"
+                "ここで重要なのは、親参加と子としての実出生を分けることです。親参加が多いのに自型の子が少ない場合、混合ペアで相手型が子へコピーされている、あるいは出生後死亡で失われている可能性があります。子としての実出生が多いのに比率が伸びない場合は、出生後の死亡圧が強い可能性があります。"
+            )
+
+        # 2) 親→子フローマトリクス
+        mat_parent_child = pd.DataFrame(0.0, index=list(PHILO_LABELS.values()), columns=list(PHILO_LABELS.values()))
+        mat_pair = pd.DataFrame(0.0, index=list(PHILO_LABELS.values()), columns=list(PHILO_LABELS.values()))
+        mat_source_child = pd.DataFrame(0.0, index=list(PHILO_LABELS.values()), columns=list(PHILO_LABELS.values()))
+        for pi, plab in PHILO_LABELS.items():
+            for ci, clab in PHILO_LABELS.items():
+                mat_parent_child.loc[plab, clab] = _sum(f"親→子 実出生:{plab}→{clab}（回/世代）")
+                mat_source_child.loc[plab, clab] = _sum(f"コピー元→子 実出生:{plab}→{clab}（回/世代）")
+                if int(pi) <= int(ci):
+                    v = _sum(f"親組合せ 実出生:{plab}×{clab}（回/世代）")
+                    mat_pair.loc[plab, clab] = v
+                    mat_pair.loc[clab, plab] = v
+        st.markdown("#### B. 親→子フロー行列")
+        st.caption("行=親として参加した型、列=実際に生まれた子の型。混合ペアでは、親2体ぶんが行に加算されます。")
+        st.dataframe(mat_parent_child.style.format("{:.0f}"), use_container_width=True)
+        st.markdown("#### C. 親組み合わせ行列")
+        st.caption("どの型同士のペアが実出生につながったかです。対角線は同型同士、対角線以外は混合ペアです。")
+        st.dataframe(mat_pair.style.format("{:.0f}"), use_container_width=True)
+        st.markdown("#### D. コピー元→子フロー行列")
+        st.caption("子が実際にどの型のコピーとして生まれたかです。現段階では突然変異を入れていないので基本的に対角線に出ます。将来、突然変異や文化的変換を入れたときに重要になります。")
+        st.dataframe(mat_source_child.style.format("{:.0f}"), use_container_width=True)
+
+        mixed_total = 0.0
+        same_total = 0.0
+        for i, lab_i in enumerate(PHILO_LABELS.values()):
+            for j, lab_j in enumerate(PHILO_LABELS.values()):
+                v = float(mat_pair.iloc[i, j])
+                if i == j:
+                    same_total += v
+                else:
+                    mixed_total += v
+        # mat_pair is symmetric, off-diagonal counted twice; correction
+        mixed_total = mixed_total / 2.0
+        same_total = same_total
+        if same_total + mixed_total > 0:
+            mixed_ratio = mixed_total / (same_total + mixed_total)
+            if mixed_ratio > 0.55:
+                mix_msg = "混合ペアが多いので、型同士は完全に分離しておらず、環境中で交差しながら淘汰されています。これは、ある型が単独で勝ったというより、混合ペアの中でどちらのコピーが子へ渡るかが重要になる状態です。"
+            elif mixed_ratio < 0.25:
+                mix_msg = "同型ペアが多いので、型ごとに繁殖経路がやや分かれています。この場合、各型の行動方針がそのまま子孫数に反映されやすくなります。"
+            else:
+                mix_msg = "同型ペアと混合ペアがどちらもあります。型ごとの行動差と、型間の組み合わせ効果の両方を見る必要があります。"
+            explain_box("親組み合わせから見た遺伝子の流れ", f"混合ペア比率は **{mixed_ratio:.3f}** です。{mix_msg}")
+
+        # 3) 行動選択から見る因果候補
+        action_rows = []
+        for lab in PHILO_LABELS.values():
+            row = {"型": lab}
+            dominant_action = None
+            dominant_rate = -1.0
+            for act_i, act_label in PHILO_ACTION_LABELS.items():
+                rate_col = f"{lab} 行動率:{act_label}（0-1）"
+                val = _mean(rate_col)
+                row[f"平均行動率:{act_label}"] = val
+                if not np.isnan(val) and val > dominant_rate:
+                    dominant_action = act_label
+                    dominant_rate = val
+            row["最多行動"] = dominant_action or "—"
+            action_rows.append(row)
+        action_df = pd.DataFrame(action_rows)
+        st.markdown("#### E. 行動選択から見る『なぜ』")
+        st.dataframe(action_df, use_container_width=True, hide_index=True, column_config={
+            col: st.column_config.NumberColumn(format="%.3f") for col in action_df.columns if col.startswith("平均行動率:")
+        })
+
+        action_explain = []
+        if len(action_df):
+            for _, r in action_df.iterrows():
+                lab = r["型"]
+                dom = r.get("最多行動", "—")
+                extra = []
+                gather_rate = r.get("平均行動率:採取", np.nan)
+                mate_rate = r.get("平均行動率:交尾", np.nan)
+                avoid_rate = r.get("平均行動率:回避", np.nan)
+                pred_rate = r.get("平均行動率:捕食", np.nan)
+                if not np.isnan(gather_rate) and gather_rate > 0.25:
+                    extra.append("採取が多く資源獲得型")
+                if not np.isnan(mate_rate) and mate_rate > 0.12:
+                    extra.append("交尾選択が多く繁殖志向")
+                if not np.isnan(avoid_rate) and avoid_rate > 0.25:
+                    extra.append("回避が多く死亡回避志向")
+                if not np.isnan(pred_rate) and pred_rate > 0.08:
+                    extra.append("捕食が多く高リスク資源獲得志向")
+                action_explain.append(f"**{lab}** は最多行動が **{dom}** です。" + (" / ".join(extra) if extra else "大きく偏った行動は見えにくいです。"))
+        explain_box("行動選択が因果候補になる理由", "\n\n".join(action_explain) + "\n\n行動率は直接の原因そのものではありませんが、出生・死亡・資源収支の前段階です。たとえば交尾率が高いのに子が少ないなら、配偶者・空きマス・近親回避で止まっている可能性があります。採取率が高いのに空腹率が高いなら、採取量・資源配置・移動コストの問題が疑えます。")
+
+        # 4) 赤/青×哲学型の偏り
+        team_rows = []
+        for lab in PHILO_LABELS.values():
+            red_last = _last(f"赤×{lab} 比率（赤内0-1）")
+            blue_last = _last(f"青×{lab} 比率（青内0-1）")
+            red_count = _last(f"赤×{lab} 数（体）")
+            blue_count = _last(f"青×{lab} 数（体）")
+            team_rows.append({
+                "型": lab,
+                "赤内最新比率": red_last,
+                "青内最新比率": blue_last,
+                "赤-青差": red_last - blue_last if not (np.isnan(red_last) or np.isnan(blue_last)) else np.nan,
+                "赤最新数": red_count,
+                "青最新数": blue_count,
+            })
+        team_df = pd.DataFrame(team_rows).sort_values("赤-青差", ascending=False)
+        st.markdown("#### F. 赤チーム・青チーム内の哲学型偏り")
+        st.dataframe(team_df, use_container_width=True, hide_index=True, column_config={
+            "赤内最新比率": st.column_config.NumberColumn(format="%.3f"),
+            "青内最新比率": st.column_config.NumberColumn(format="%.3f"),
+            "赤-青差": st.column_config.NumberColumn(format="%+.3f"),
+            "赤最新数": st.column_config.NumberColumn(format="%.0f"),
+            "青最新数": st.column_config.NumberColumn(format="%.0f"),
+        })
+        if len(team_df):
+            red_bias = team_df.iloc[0]
+            blue_bias = team_df.iloc[-1]
+            explain_box(
+                "赤青差を哲学型の偏りとして読む",
+                f"赤側に最も偏っている型は **{red_bias['型']}**、青側に最も偏っている型は **{blue_bias['型']}** です。赤青の個体数差を見るだけだとチーム色の優劣に見えますが、実際にはチーム内の哲学型・タカハト型・資源格差が偏っているだけの可能性があります。したがって、赤青差は『チームそのものの効果』と『チーム内遺伝子構成の効果』を分けて読む必要があります。"
+            )
+
+        # 5) 相関からの因果候補をもう一段増やす
+        corr_rows = []
+        for lab in PHILO_LABELS.values():
+            pairs = [
+                (f"{lab} 比率（0-1）", f"{lab} 親参加:実出生（回/世代）", "頻度と親繁殖参加"),
+                (f"{lab} 比率（0-1）", f"{lab} 実出生（体/世代）", "頻度と子としての出生"),
+                (f"{lab} 比率（0-1）", f"{lab} 死亡（体/世代）", "頻度と死亡"),
+                (f"{lab} 比率（0-1）", f"{lab} 資源収支ネット（単位/世代）", "頻度と資源収支"),
+                (f"{lab} 比率（0-1）", f"{lab} 空腹個体比率（0-1）", "頻度と空腹"),
+                (f"{lab} 比率（0-1）", f"{lab} 行動率:交尾（0-1）", "頻度と交尾行動"),
+                (f"{lab} 比率（0-1）", f"{lab} 行動率:採取（0-1）", "頻度と採取行動"),
+            ]
+            for a, b, name in pairs:
+                cv = _corr(a, b)
+                if not np.isnan(cv):
+                    corr_rows.append({"型": lab, "関係": name, "相関": cv, "読み方": "正なら一緒に増える / 負なら逆方向。因果の証明ではなく、疑う経路の候補。"})
+        if corr_rows:
+            corr_df = pd.DataFrame(corr_rows).sort_values("相関", key=lambda s: s.abs(), ascending=False).head(30)
+            st.markdown("#### G. 頻度変化とイベントの相関：因果候補ランキング")
+            st.dataframe(corr_df, use_container_width=True, hide_index=True, column_config={
+                "相関": st.column_config.NumberColumn(format="%+.3f"),
+            })
+            top_corr = corr_df.iloc[0]
+            explain_box("因果候補の読み方", f"最も強く連動している候補は **{top_corr['型']}** の **{top_corr['関係']}**（相関 {top_corr['相関']:+.3f}）です。これは原因の証明ではありませんが、次にON/OFF比較やseed比較で検証すべき最有力候補です。")
+
+
+    def show_deep_causal_interpretation():
+        """全履歴から、優勢/劣勢・淘汰圧・チーム差・因果候補を文章化する。"""
+        if df is None or len(df) < 3:
+            st.info("履歴が少ないため、深い読み取りにはもう少し世代を進めてください。")
+            return
+
+        d = df.copy()
+        full_n = len(d)
+        xcol = "世代（回)" if "世代（回)" in d.columns else "世代（回）"
+        if xcol not in d.columns:
+            xcol = d.columns[0]
+
+        def has(col): return col in d.columns
+        def s(col):
+            if col not in d.columns:
+                return pd.Series(dtype=float)
+            return pd.to_numeric(d[col], errors="coerce")
+        def last(col, default=0.0):
+            ss = s(col).dropna()
+            return float(ss.iloc[-1]) if len(ss) else float(default)
+        def first(col, default=0.0):
+            ss = s(col).dropna()
+            return float(ss.iloc[0]) if len(ss) else float(default)
+        def mean(col):
+            ss = s(col).dropna()
+            return float(ss.mean()) if len(ss) else 0.0
+        def trend(col):
+            ss = s(col).dropna()
+            return float(ss.iloc[-1] - ss.iloc[0]) if len(ss) >= 2 else 0.0
+        def slope(col):
+            ss = s(col).dropna()
+            if len(ss) < 3: return 0.0
+            xx = np.arange(len(ss), dtype=float)
+            try:
+                return float(np.polyfit(xx, ss.to_numpy(dtype=float), 1)[0])
+            except Exception:
+                return 0.0
+        def corr(a,b):
+            if a not in d.columns or b not in d.columns: return np.nan
+            aa = s(a); bb=s(b)
+            m = aa.notna() & bb.notna()
+            if int(m.sum()) < 3: return np.nan
+            if float(aa[m].std()) == 0.0 or float(bb[m].std()) == 0.0: return np.nan
+            return float(aa[m].corr(bb[m]))
+        def fmt(x, nd=3):
+            if x is None or (isinstance(x, float) and np.isnan(x)): return "—"
+            return f"{float(x):.{nd}f}"
+
+        st.markdown("### 0.5) 深掘りサマリー：なぜそうなっているか")
+        st.caption("この欄は最新10世代だけではなく、保存されている全履歴・前半/後半・最大/最小・相関を合わせて読みます。相関は原因の証明ではありませんが、次に疑うべき淘汰圧を絞る手がかりになります。")
+
+        pop0, pop1 = first("個体数（体）"), last("個体数（体）")
+        pop_max = float(s("個体数（体）").max()) if has("個体数（体）") else 0.0
+        pop_min = float(s("個体数（体）").min()) if has("個体数（体）") else 0.0
+        w_mean = mean("個体群全体W（増殖率）")
+        res0, res1 = first("資源総量（単位）"), last("資源総量（単位）")
+        res_slope = slope("資源総量（単位）")
+        pop_slope = slope("個体数（体）")
+        birth_total = float(s("出生数（体/世代）").sum()) if has("出生数（体/世代）") else 0.0
+        death_total = float(s("死亡数（体/世代）").sum()) if has("死亡数（体/世代）") else 0.0
+        c_pop_res = corr("個体数（体）", "資源総量（単位）")
+        c_death_gini = corr("死亡数（体/世代）", "資源格差Gini（0-1）")
+        c_birth_resource = corr("出生数（体/世代）", "平均所持資源（単位/体）")
+        c_birth_mate = corr("出生数（体/世代）", "交尾成立（回/世代）")
+
+        colA, colB, colC, colD = st.columns(4)
+        colA.metric("個体数 初期→最新", f"{int(pop0)}→{int(pop1)}", f"最大{int(pop_max)} / 最小{int(pop_min)}")
+        colB.metric("全期間平均W", f"{w_mean:.3f}", "1.0が維持線")
+        colC.metric("出生総数/死亡総数", f"{int(birth_total)}/{int(death_total)}", f"差 {int(birth_total-death_total):+d}")
+        colD.metric("資源 初期→最新", f"{int(res0)}→{int(res1)}", f"傾き {res_slope:+.2f}/世代")
+
+        pop_read = []
+        if w_mean > 1.02:
+            pop_read.append("全期間平均Wが1を上回るため、個体群には増殖圧がかかっています。なぜならWは前世代比のコピー数で、平均的に1を超えると出生・生存が死亡を上回りやすいからです。")
+        elif w_mean < 0.98:
+            pop_read.append("全期間平均Wが1を下回るため、個体群には縮小圧がかかっています。なぜなら、出生があっても維持コスト・死亡・寿命による消失を十分に補えていない可能性が高いからです。")
+        else:
+            pop_read.append("全期間平均Wはほぼ1付近です。これは全体集団が爆発も崩壊もしていないため、集団内部の遺伝子差を観察しやすい状態です。")
+        if not np.isnan(c_pop_res):
+            if c_pop_res > 0.35:
+                pop_read.append(f"個体数と資源総量の相関は **{c_pop_res:+.3f}** で正です。資源が多い局面ほど個体数も多く、資源供給が個体群維持を支えている可能性があります。")
+            elif c_pop_res < -0.35:
+                pop_read.append(f"個体数と資源総量の相関は **{c_pop_res:+.3f}** で負です。個体数が増えるほど盤面資源が削られている可能性があり、資源消費型の密度圧が疑えます。")
+            else:
+                pop_read.append(f"個体数と資源総量の相関は **{c_pop_res:+.3f}** で弱めです。盤面資源だけでなく、資源の位置・探索・交尾成立・死亡圧も個体数を左右している可能性があります。")
+        if not np.isnan(c_birth_resource):
+            pop_read.append(f"出生数と平均所持資源の相関は **{c_birth_resource:+.3f}** です。正なら繁殖制約が資源寄り、弱いなら資源以外、たとえば出会い・近親回避・空きマスが制約になっている可能性があります。")
+        if not np.isnan(c_birth_mate):
+            pop_read.append(f"出生数と交尾成立の相関は **{c_birth_mate:+.3f}** です。ここが強いほど、個体数変化の直接因は資源よりも配偶者探索・交尾成立に近いと読めます。")
+        if not np.isnan(c_death_gini):
+            pop_read.append(f"死亡数と資源格差Giniの相関は **{c_death_gini:+.3f}** です。正なら、資源の総量不足より『資源の偏り』が死亡圧に接続している可能性があります。")
+        explain_box("個体群全体の読み取り", "\n\n".join(pop_read))
+
+        # 遺伝子ごとの優勢/劣勢評価
+        gene_rows = []
+        for lab in PHILO_LABELS.values():
+            count_col = f"{lab} 数（体）"; ratio_col=f"{lab} 比率（0-1）"; w_col=f"{lab} W"
+            if ratio_col not in d.columns: continue
+            count0, count1 = first(count_col), last(count_col)
+            ratio0, ratio1 = first(ratio_col), last(ratio_col)
+            w_avg = mean(w_col)
+            w_slope = slope(w_col)
+            net_avg = mean(f"{lab} 資源収支ネット（単位/世代）")
+            hunger_avg = mean(f"{lab} 空腹個体比率（0-1）")
+            birth_sum = float(s(f"{lab} 実出生（体/世代）").sum()) if has(f"{lab} 実出生（体/世代）") else 0.0
+            death_sum = float(s(f"{lab} 死亡（体/世代）").sum()) if has(f"{lab} 死亡（体/世代）") else 0.0
+            dominance_score = (ratio1 - ratio0) + 0.35 * (w_avg - 1.0) + 0.002 * (birth_sum - death_sum)
+            why = []
+            if ratio1 - ratio0 > 0.03:
+                why.append("頻度が初期より上昇")
+            elif ratio1 - ratio0 < -0.03:
+                why.append("頻度が初期より低下")
+            else:
+                why.append("頻度変化は小さい")
+            if w_avg > 1.01:
+                why.append("平均Wが1超でコピー増加圧")
+            elif w_avg < 0.99:
+                why.append("平均Wが1未満でコピー減少圧")
+            else:
+                why.append("平均Wはほぼ維持線")
+            if birth_sum > death_sum:
+                why.append("実出生が死亡を上回る")
+            elif birth_sum < death_sum:
+                why.append("死亡が実出生を上回る")
+            if hunger_avg > 0.45:
+                why.append("空腹率が高く資源制約を受けやすい")
+            if net_avg > 0:
+                why.append("資源収支は正")
+            elif net_avg < 0:
+                why.append("資源収支は負")
+            gene_rows.append({
+                "型": lab,
+                "初期数": int(count0), "最新数": int(count1), "数変化": int(count1-count0),
+                "初期比率": ratio0, "最新比率": ratio1, "比率変化": ratio1-ratio0,
+                "平均W": w_avg, "W傾き": w_slope,
+                "出生合計": int(birth_sum), "死亡合計": int(death_sum), "出生-死亡": int(birth_sum-death_sum),
+                "平均資源収支": net_avg, "平均空腹率": hunger_avg,
+                "優勢スコア": dominance_score,
+                "なぜ": "、".join(why)
+            })
+        if gene_rows:
+            gene_df = pd.DataFrame(gene_rows).sort_values("優勢スコア", ascending=False)
+            st.markdown("#### 遺伝子型の優勢・劣勢")
+            st.dataframe(gene_df, use_container_width=True, hide_index=True, column_config={
+                "初期比率": st.column_config.NumberColumn(format="%.3f"),
+                "最新比率": st.column_config.NumberColumn(format="%.3f"),
+                "比率変化": st.column_config.NumberColumn(format="%+.3f"),
+                "平均W": st.column_config.NumberColumn(format="%.3f"),
+                "W傾き": st.column_config.NumberColumn(format="%+.4f"),
+                "平均資源収支": st.column_config.NumberColumn(format="%+.2f"),
+                "平均空腹率": st.column_config.NumberColumn(format="%.3f"),
+                "優勢スコア": st.column_config.NumberColumn(format="%+.3f"),
+            })
+            best = gene_df.iloc[0]; worst = gene_df.iloc[-1]
+            explain_box(
+                "哲学/通常個体の淘汰読み取り",
+                f"このランで最も優勢に見える型は **{best['型']}**、最も劣勢に見える型は **{worst['型']}** です。ここでの優勢は単なる最新比率ではなく、比率変化・平均W・出生死亡差を合わせた暫定評価です。なぜなら、最新比率だけだと『最初から多かった型』や『他型より減りにくかった型』を過大評価してしまうからです。\n\n"
+                f"**{best['型']}** は {best['なぜ']}。一方、**{worst['型']}** は {worst['なぜ']}。この差は、資源獲得・空腹回避・交尾成功・死亡回避のどれかに接続している可能性があります。"
+            )
+
+        # タカ/ハト、捕食、チーム
+        contest_rows=[]
+        if has("タカ数（体）") and has("ハト数（体）"):
+            for lab in ["タカ", "ハト"]:
+                count_col=f"{lab}数（体）"
+                if lab == "ハト" and count_col not in d.columns: count_col="ハト数（体）"
+                if lab == "タカ" and count_col not in d.columns: count_col="タカ数（体）"
+                w_col=f"{lab} 適応度W（コピー増殖率）"
+                if w_col not in d.columns and lab == "タカ": w_col="タカ 適応度W（コピー増殖率）"
+                if w_col not in d.columns and lab == "ハト": w_col="ハト 適応度W（コピー増殖率）"
+                if count_col in d.columns:
+                    contest_rows.append({"争奪遺伝子": lab, "初期数": int(first(count_col)), "最新数": int(last(count_col)), "数変化": int(last(count_col)-first(count_col)), "平均W": mean(w_col)})
+        if contest_rows:
+            cdf=pd.DataFrame(contest_rows)
+            st.markdown("#### 争奪遺伝子：タカ/ハトの淘汰圧")
+            st.dataframe(cdf, use_container_width=True, hide_index=True)
+            if len(cdf)>=2:
+                top=cdf.sort_values(["数変化","平均W"], ascending=False).iloc[0]
+                explain_box("タカ/ハトの読み取り", f"このランでは **{top['争奪遺伝子']}** が相対的に優勢に見えます。なぜなら、数変化と平均Wが争奪遺伝子のコピー維持を直接示すからです。タカが伸びるなら衝突で得る利得がコストを上回る環境、ハトが伸びるなら戦闘コスト・過密・資源格差が攻撃性を罰している環境が疑えます。")
+
+        # 捕食傾向
+        if has("捕食傾向比率（0-1）"):
+            pred_delta = trend("捕食傾向比率（0-1）")
+            pred_success = mean("捕食成功率（0-1）")
+            pred_gain = mean("捕食獲得資源（単位/世代）")
+            pred_fail = mean("捕食失敗（回/世代）")
+            if pred_delta > 0.02:
+                pred_msg = "捕食傾向遺伝子は増加傾向です。捕食成功率や獲得資源が高いなら、捕食が資源不足への適応として働いている可能性があります。"
+            elif pred_delta < -0.02:
+                pred_msg = "捕食傾向遺伝子は低下傾向です。捕食失敗・コスト・被害が大きく、捕食が長期的には不利になっている可能性があります。"
+            else:
+                pred_msg = "捕食傾向遺伝子は大きく変化していません。捕食は強い選択圧ではないか、他の圧と釣り合っている可能性があります。"
+            explain_box("捕食遺伝子の読み取り", f"{pred_msg}\n\n平均捕食成功率は **{pred_success:.3f}**、平均捕食獲得資源は **{pred_gain:.2f}**、平均捕食失敗は **{pred_fail:.2f}** です。なぜこれを見るかというと、捕食は短期的な資源獲得と失敗コストを同時に持つため、単に試行回数だけでは有利不利が判断できないからです。")
+
+        # チーム差
+        team_lines=[]
+        if has("赤個体数（体）") and has("青個体数（体）"):
+            red0, red1 = first("赤個体数（体）"), last("赤個体数（体）")
+            blue0, blue1 = first("青個体数（体）"), last("青個体数（体）")
+            red_share = red1 / max(red1+blue1, 1.0)
+            blue_share = blue1 / max(red1+blue1, 1.0)
+            team_lines.append(f"赤は **{int(red0)}→{int(red1)}体**、青は **{int(blue0)}→{int(blue1)}体** です。最新比率は赤{red_share:.3f}、青{blue_share:.3f}です。")
+            if red_share > blue_share + 0.05:
+                team_lines.append("赤チームが優位です。なぜなら、最新個体数比で青より明確に多く、同じ環境下でコピー維持に成功しているからです。")
+            elif blue_share > red_share + 0.05:
+                team_lines.append("青チームが優位です。なぜなら、最新個体数比で赤より明確に多く、同じ環境下でコピー維持に成功しているからです。")
+            else:
+                team_lines.append("赤青差は大きくありません。チーム色そのものより、哲学型・資源配置・局所密度などの内部差が効いている可能性があります。")
+            if has("赤 平均所持資源") and has("青 平均所持資源"):
+                red_res = mean("赤 平均所持資源"); blue_res=mean("青 平均所持資源")
+                team_lines.append(f"平均所持資源は赤 **{red_res:.2f}**、青 **{blue_res:.2f}** です。資源差が個体数差と同じ向きなら、チーム差は資源獲得の差に支えられている可能性があります。逆向きなら、資源以外の死亡率・交尾成立・空間配置が疑えます。")
+            if has("赤 Gini") and has("青 Gini"):
+                red_g = mean("赤 Gini"); blue_g=mean("青 Gini")
+                team_lines.append(f"資源格差Giniは赤 **{red_g:.3f}**、青 **{blue_g:.3f}** です。Giniが高いチームは、平均資源が同じでも一部個体に資源が偏り、低資源個体が死亡しやすくなる可能性があります。")
+            explain_box("赤チーム・青チームの特徴", "\n\n".join(team_lines))
+
+        # 淘汰圧の総合推定
+        pressures=[]
+        if w_mean < 0.99: pressures.append(("死亡/維持コスト圧", "全期間平均Wが1未満で、個体群維持がやや難しいため。"))
+        if not np.isnan(c_death_gini) and c_death_gini > 0.35: pressures.append(("資源格差圧", "死亡とGiniが正に連動しており、総量不足より分配の偏りが死亡を生む可能性があるため。"))
+        if has("交尾成立率（0-1）") and mean("交尾成立率（0-1）") < 0.25: pressures.append(("配偶者探索/交尾成立圧", "交尾成立率が低く、資源を持っていても出生へ変換できない可能性があるため。"))
+        if has("過密で抑制された出生候補（回/世代）") and mean("過密で抑制された出生候補（回/世代）") > 0.5: pressures.append(("密度依存圧", "出生候補が過密で抑制されており、単純な繁殖力だけでなく空間的余地が選択されているため。"))
+        if has("捕食成功率（0-1）") and mean("捕食試行（回/世代）") > 0 and mean("捕食成功率（0-1）") < 0.25: pressures.append(("捕食失敗コスト圧", "捕食試行に対して成功率が低く、捕食傾向がリスクになりやすいため。"))
+        if not pressures:
+            pressures.append(("弱い複合選択圧", "単独で突出した圧は見えにくく、資源・交尾・密度・遺伝的浮動が複合している可能性が高いため。"))
+        pressure_df=pd.DataFrame([{"推定される淘汰圧":a,"なぜそう読めるか":b} for a,b in pressures])
+        st.markdown("#### このランで働いていそうな淘汰圧")
+        st.dataframe(pressure_df, use_container_width=True, hide_index=True)
+
+
+
+    def show_v20_comparison_mode():
+        """v20：同じseedで条件だけを変え、観察された差分を因果候補として読む。"""
+        st.markdown("### 0.7) v20 比較実験モード：同じseedで条件だけを変える")
+        explain_box(
+            "なぜ比較実験が必要か",
+            "一つのランだけでは、遺伝子頻度の変化が本当にその遺伝子の効果なのか、初期配置・資源配置・偶然の出生死亡で起きたのかを分けにくいです。v20では、同じseedを使ったまま一つの条件だけを変えて走らせます。すると、初期配置の偶然をかなりそろえたうえで、哲学遺伝子・通常個体割合・捕食・密度依存・局所資源再生・近親回避がどの程度結果を変えたかを比較できます。これは因果の証明そのものではありませんが、単なる相関よりずっと強い因果候補になります。"
+        )
+
+        scenario_options = {
+            "哲学遺伝子OFF": {"enable_philo_gene": False},
+            "通常100%（哲学個体なし）": {"initial_normal_pct": 100},
+            "通常50%": {"initial_normal_pct": 50},
+            "哲学100%（通常個体なし）": {"initial_normal_pct": 0},
+            "捕食OFF": {"enable_predation": False},
+            "密度依存OFF": {"enable_density_dependence": False},
+            "局所資源再生OFF": {"enable_local_resource_regen": False},
+            "近親回避OFF": {"enable_kin_avoidance": False},
+            "生態補正OFF（密度・局所・近親・捕食OFF）": {
+                "enable_density_dependence": False,
+                "enable_local_resource_regen": False,
+                "enable_kin_avoidance": False,
+                "enable_predation": False,
+            },
+        }
+
+        with st.expander("v20 比較実験を実行する", expanded=False):
+            st.caption("比較中は一時的に内部世界をリセットして複数ランを回します。終了後、現在見ている世界・履歴・世代は元に戻します。")
+            comp_cols = st.columns([1.0, 1.0, 2.2])
+            with comp_cols[0]:
+                compare_generations = st.slider("比較で進める世代数", 10, 120, 40, 10, key="v20_compare_generations")
+            with comp_cols[1]:
+                compare_repeats = st.slider("seed反復数", 1, 3, 1, 1, key="v20_compare_repeats")
+            with comp_cols[2]:
+                selected_scenarios = st.multiselect(
+                    "比較する条件",
+                    options=list(scenario_options.keys()),
+                    default=["哲学遺伝子OFF", "通常100%（哲学個体なし）", "捕食OFF"],
+                    key="v20_selected_scenarios",
+                )
+            run_compare = st.button("同じseedで比較実験を実行", use_container_width=True, key="v20_run_compare")
+            st.caption("軽量化のため初期値は40世代×1反復・条件3つにしています。必要なときだけ世代数・条件・反復数を増やしてください。")
+
+            if run_compare:
+                specs = [("基準", {})] + [(name, scenario_options[name]) for name in selected_scenarios]
+                total_runs = len(specs) * int(compare_repeats)
+                if total_runs > 18:
+                    st.warning(f"比較条件が多く、{total_runs}本の内部ランになります。Cloudでは重くなりやすいので、条件数か反復数を減らすのがおすすめです。")
+                try:
+                    with st.spinner("v20比較実験を実行中です。現在の世界はあとで復元します。"):
+                        result = _run_v20_comparison(specs, int(compare_generations), int(compare_repeats))
+                        st.session_state["v20_compare_results"] = result
+                except Exception as e:
+                    st.error("比較実験中にエラーが出ました。通常の単独シミュレーションはそのまま使えます。")
+                    st.caption("まずは『比較で進める世代数』を20〜40、seed反復数を1、比較条件を1〜3個に減らして再実行してください。")
+                    st.exception(e)
+
+        result = st.session_state.get("v20_compare_results", None)
+        if not result:
+            st.caption("まだ比較実験は実行されていません。現在の単独ランの読み取りは上のv19までで確認できます。")
+            return
+
+        raw_df = pd.DataFrame(result.get("raw", []))
+        if raw_df.empty:
+            st.warning("比較実験の結果が空でした。世代数を増やすか、エラーが出ていないか確認してください。")
+            return
+
+        metric_cols = [
+            "最終個体数", "個体数変化", "平均W", "終盤W", "合計出生", "合計死亡", "出生-死亡",
+            "最終資源総量", "資源変化", "哲学割合変化", "通常割合変化", "赤青差_最終",
+            "タカ比率変化", "捕食傾向比率変化", "行動型多様度_最終"
+        ]
+        keep_cols = [c for c in metric_cols if c in raw_df.columns]
+        agg = raw_df.groupby("条件", as_index=False)[keep_cols].mean()
+        counts = raw_df.groupby("条件", as_index=False).size().rename(columns={"size": "反復数"})
+        agg = counts.merge(agg, on="条件", how="left")
+        order = {name: i for i, name in enumerate(result.get("order", []))}
+        agg["_order"] = agg["条件"].map(order).fillna(999)
+        agg = agg.sort_values("_order").drop(columns=["_order"])
+
+        baseline = agg[agg["条件"] == "基準"]
+        if not baseline.empty:
+            base = baseline.iloc[0]
+            for c in ["最終個体数", "個体数変化", "平均W", "終盤W", "合計出生", "合計死亡", "出生-死亡", "最終資源総量", "資源変化", "哲学割合変化", "通常割合変化", "赤青差_最終"]:
+                if c in agg.columns and c in base.index:
+                    agg[f"Δ{c}(基準差)"] = pd.to_numeric(agg[c], errors="coerce") - float(base[c])
+
+        st.markdown("#### v20-A. 条件別の比較表")
+        st.caption("Δ列は基準ランとの差です。同じseedで条件だけを変えているので、差が大きいほどその条件が結果を動かした因果候補になります。")
+        fmt_cols = {}
+        for c in agg.columns:
+            if c == "条件":
+                continue
+            if "W" in c or "割合" in c or "比率" in c or "多様度" in c:
+                fmt_cols[c] = st.column_config.NumberColumn(format="%.3f")
+            elif c.startswith("Δ") or "変化" in c or "差" in c:
+                fmt_cols[c] = st.column_config.NumberColumn(format="%+.2f")
+            else:
+                fmt_cols[c] = st.column_config.NumberColumn(format="%.1f")
+        st.dataframe(agg, use_container_width=True, hide_index=True, column_config=fmt_cols)
+
+        # 視覚化：単位が混ざらないように、個体数差とW差を分ける。
+        if not baseline.empty:
+            delta_cols_pop = [c for c in ["Δ最終個体数(基準差)", "Δ出生-死亡(基準差)", "Δ最終資源総量(基準差)"] if c in agg.columns]
+            delta_cols_w = [c for c in ["Δ平均W(基準差)", "Δ終盤W(基準差)", "Δ哲学割合変化(基準差)", "Δ通常割合変化(基準差)"] if c in agg.columns]
+            chart_df = agg[agg["条件"] != "基準"].copy()
+            if len(chart_df) and delta_cols_pop:
+                st.markdown("#### v20-B. 基準との差：個体数・出生死亡・資源")
+                st.bar_chart(chart_df.set_index("条件")[delta_cols_pop])
+            if len(chart_df) and delta_cols_w:
+                st.markdown("#### v20-C. 基準との差：W・比率変化")
+                st.bar_chart(chart_df.set_index("条件")[delta_cols_w])
+
+        # 行動型ごとの比率変化も比較する。
+        philo_delta_cols = []
+        for lab in PHILO_LABELS.values():
+            c = f"{lab} 比率変化"
+            if c in raw_df.columns:
+                philo_delta_cols.append(c)
+        if philo_delta_cols:
+            ph_agg = raw_df.groupby("条件", as_index=False)[philo_delta_cols].mean()
+            ph_agg["_order"] = ph_agg["条件"].map(order).fillna(999)
+            ph_agg = ph_agg.sort_values("_order").drop(columns=["_order"])
+            st.markdown("#### v20-D. 各条件で、どの行動型が伸びたか")
+            st.caption("通常個体・各哲学型の比率変化です。基準と条件変更を比べると、どの遺伝子がどの環境で伸びやすいかが見えます。")
+            st.dataframe(ph_agg, use_container_width=True, hide_index=True, column_config={c: st.column_config.NumberColumn(format="%+.3f") for c in philo_delta_cols})
+
+        # テキスト解釈：なぜその差が出たと読めるか。
+        st.markdown("#### v20-E. 比較から読める因果候補")
+        causal_lines = _v20_causal_text(agg)
+        for line in causal_lines:
+            st.markdown(f"- {line}")
+
+        with st.expander("v20 生データ：各seed反復ごとの結果", expanded=False):
+            st.dataframe(raw_df, use_container_width=True, hide_index=True)
+
+    def _run_v20_comparison(specs, generations: int, repeats: int):
+        """現在の世界を退避し、同じseedで複数条件を走らせる。"""
+        generations = max(1, int(generations))
+        repeats = max(1, int(repeats))
+        old = {
+            "world": st.session_state.world,
+            "history": list(st.session_state.history),
+            "gen": int(st.session_state.gen),
+            "phase": int(st.session_state.phase),
+            "last_phase_executed": st.session_state.last_phase_executed,
+            "sig": st.session_state.get("sig", None),
+        }
+        override_keys = sorted({k for _, ov in specs for k in ov.keys()} | {"seed"})
+        old_globals = {k: globals().get(k, None) for k in override_keys}
+        rows = []
+        prog = st.progress(0, text="比較実験を準備中")
+        total = max(1, len(specs) * repeats)
+        done = 0
+        try:
+            for rep in range(repeats):
+                base_seed = int(old_globals.get("seed", globals().get("seed", 0)))
+                scenario_seed = int(base_seed + rep * 10007)
+                for name, overrides in specs:
+                    for k, v in old_globals.items():
+                        if k in globals() and v is not None:
+                            globals()[k] = v
+                    globals()["seed"] = scenario_seed
+                    for k, v in overrides.items():
+                        globals()[k] = v
+                    reset_world()
+                    advance_generations(generations)
+                    rows.append(_v20_summarize_history(st.session_state.history, name, scenario_seed, generations, rep + 1, overrides))
+                    done += 1
+                    prog.progress(done / total, text=f"比較実験中：{done}/{total}  {name}")
+        finally:
+            for k, v in old_globals.items():
+                if v is not None:
+                    globals()[k] = v
+            st.session_state.world = old["world"]
+            st.session_state.history = old["history"]
+            st.session_state.gen = old["gen"]
+            st.session_state.phase = old["phase"]
+            st.session_state.last_phase_executed = old["last_phase_executed"]
+            if old["sig"] is not None:
+                st.session_state.sig = old["sig"]
+            prog.empty()
+        return {"raw": rows, "order": [name for name, _ in specs], "generations": generations, "repeats": repeats}
+
+    def _v20_series(frame, col):
+        if col not in frame.columns:
+            return pd.Series(dtype=float)
+        return pd.to_numeric(frame[col], errors="coerce")
+
+    def _v20_first(frame, col, default=np.nan):
+        s = _v20_series(frame, col).dropna()
+        return float(s.iloc[0]) if len(s) else default
+
+    def _v20_last(frame, col, default=np.nan):
+        s = _v20_series(frame, col).dropna()
+        return float(s.iloc[-1]) if len(s) else default
+
+    def _v20_mean(frame, col, default=np.nan):
+        s = _v20_series(frame, col).dropna()
+        return float(s.mean()) if len(s) else default
+
+    def _v20_sum(frame, col, default=0.0):
+        s = _v20_series(frame, col).dropna()
+        return float(s.sum()) if len(s) else default
+
+    def _v20_tail_mean(frame, col, frac=0.25, default=np.nan):
+        s = _v20_series(frame, col).dropna()
+        if not len(s):
+            return default
+        k = max(1, int(np.ceil(len(s) * float(frac))))
+        return float(s.tail(k).mean())
+
+    def _v20_summarize_history(history, scenario_name, scenario_seed, generations, repeat_index, overrides):
+        frame = pd.DataFrame(history)
+        if frame.empty:
+            return {"条件": scenario_name, "seed": scenario_seed, "反復": repeat_index, "実行世代数": generations, "エラー": "履歴なし"}
+        row = {
+            "条件": scenario_name,
+            "seed": int(scenario_seed),
+            "反復": int(repeat_index),
+            "実行世代数": int(generations),
+            "変更した条件": ", ".join([f"{k}={v}" for k, v in overrides.items()]) if overrides else "なし",
+            "初期個体数": _v20_first(frame, "個体数（体）", 0.0),
+            "最終個体数": _v20_last(frame, "個体数（体）", 0.0),
+            "最大個体数": float(_v20_series(frame, "個体数（体）").max()) if "個体数（体）" in frame.columns else np.nan,
+            "最小個体数": float(_v20_series(frame, "個体数（体）").min()) if "個体数（体）" in frame.columns else np.nan,
+            "平均W": _v20_mean(frame, "個体群全体W（増殖率）"),
+            "終盤W": _v20_tail_mean(frame, "個体群全体W（増殖率）"),
+            "合計出生": _v20_sum(frame, "出生数（体/世代）"),
+            "合計死亡": _v20_sum(frame, "死亡数（体/世代）"),
+            "最終資源総量": _v20_last(frame, "資源総量（単位）", 0.0),
+            "初期資源総量": _v20_first(frame, "資源総量（単位）", 0.0),
+            "平均Gini": _v20_mean(frame, "資源格差Gini（0-1）"),
+            "平均交尾成立率": _v20_mean(frame, "交尾成立率（0-1）"),
+            "平均捕食成功率": _v20_mean(frame, "捕食成功率（0-1）"),
+            "赤最終": _v20_last(frame, "赤個体数（体）", 0.0),
+            "青最終": _v20_last(frame, "青個体数（体）", 0.0),
+            "哲学割合初期": _v20_first(frame, "哲学個体割合（0-1）", 0.0),
+            "哲学割合最終": _v20_last(frame, "哲学個体割合（0-1）", 0.0),
+            "通常割合初期": _v20_first(frame, "通常個体割合（0-1）", 0.0),
+            "通常割合最終": _v20_last(frame, "通常個体割合（0-1）", 0.0),
+            "タカ比率初期": _v20_first(frame, "タカ比率（0-1）", 0.0),
+            "タカ比率最終": _v20_last(frame, "タカ比率（0-1）", 0.0),
+            "捕食傾向比率初期": _v20_first(frame, "捕食傾向比率（0-1）", 0.0),
+            "捕食傾向比率最終": _v20_last(frame, "捕食傾向比率（0-1）", 0.0),
+            "行動型多様度_最終": _v20_last(frame, "行動型多様度（通常含むSimpson）", 0.0),
+        }
+        row["個体数変化"] = row["最終個体数"] - row["初期個体数"]
+        row["出生-死亡"] = row["合計出生"] - row["合計死亡"]
+        row["資源変化"] = row["最終資源総量"] - row["初期資源総量"]
+        row["赤青差_最終"] = row["赤最終"] - row["青最終"]
+        row["哲学割合変化"] = row["哲学割合最終"] - row["哲学割合初期"]
+        row["通常割合変化"] = row["通常割合最終"] - row["通常割合初期"]
+        row["タカ比率変化"] = row["タカ比率最終"] - row["タカ比率初期"]
+        row["捕食傾向比率変化"] = row["捕食傾向比率最終"] - row["捕食傾向比率初期"]
+
+        best_lab = None
+        best_score = -1e9
+        worst_lab = None
+        worst_score = 1e9
+        for lab in PHILO_LABELS.values():
+            r0 = _v20_first(frame, f"{lab} 比率（0-1）", 0.0)
+            r1 = _v20_last(frame, f"{lab} 比率（0-1）", 0.0)
+            wmean = _v20_mean(frame, f"{lab} W", 1.0)
+            births = _v20_sum(frame, f"{lab} 実出生（体/世代）")
+            deaths = _v20_sum(frame, f"{lab} 死亡（体/世代）")
+            exposure = _v20_sum(frame, f"{lab} 数（体）")
+            bd_rate = (births - deaths) / max(exposure, 1.0)
+            score = (r1 - r0) * 2.0 + (wmean - 1.0) + bd_rate
+            row[f"{lab} 比率変化"] = r1 - r0
+            row[f"{lab} 平均W"] = wmean
+            row[f"{lab} 出生-死亡率"] = bd_rate
+            row[f"{lab} 優勢スコア"] = score
+            if score > best_score:
+                best_score = score; best_lab = lab
+            if score < worst_score:
+                worst_score = score; worst_lab = lab
+        row["推定優勢型"] = best_lab if best_lab is not None else "不明"
+        row["推定劣勢型"] = worst_lab if worst_lab is not None else "不明"
+        return row
+
+    def _v20_causal_text(agg):
+        lines = []
+        if agg.empty or "基準" not in set(agg["条件"]):
+            return ["基準ランがないため、条件差の比較はできません。"]
+        base = agg[agg["条件"] == "基準"].iloc[0]
+        base_pop = float(base.get("最終個体数", 0.0))
+        pop_threshold = max(5.0, abs(base_pop) * 0.05)
+        for _, r in agg.iterrows():
+            name = str(r.get("条件", ""))
+            if name == "基準":
+                continue
+            dpop = float(r.get("Δ最終個体数(基準差)", np.nan)) if "Δ最終個体数(基準差)" in r.index else np.nan
+            dw = float(r.get("Δ終盤W(基準差)", np.nan)) if "Δ終盤W(基準差)" in r.index else np.nan
+            dbd = float(r.get("Δ出生-死亡(基準差)", np.nan)) if "Δ出生-死亡(基準差)" in r.index else np.nan
+            direction = "ほぼ同等"
+            if not np.isnan(dpop):
+                if dpop > pop_threshold:
+                    direction = "基準より個体群維持に有利"
+                elif dpop < -pop_threshold:
+                    direction = "基準より個体群維持に不利"
+            reason = f"**{name}** は {direction} です。"
+            if not np.isnan(dpop):
+                reason += f"最終個体数差が {dpop:+.1f} 体"
+            if not np.isnan(dw):
+                reason += f"、終盤W差が {dw:+.3f}"
+            if not np.isnan(dbd):
+                reason += f"、出生-死亡差が {dbd:+.1f}"
+            reason += " だからです。"
+
+            if name.startswith("哲学遺伝子OFF"):
+                if not np.isnan(dpop) and dpop < -pop_threshold:
+                    reason += "哲学的行動補正を外すと集団が弱くなるため、この設定では哲学遺伝子が資源獲得・死亡回避・繁殖成立のどれかに寄与している可能性があります。"
+                elif not np.isnan(dpop) and dpop > pop_threshold:
+                    reason += "哲学的行動補正を外すと集団が強くなるため、この設定では哲学補正が過剰な抑制や行動の偏りとして働いている可能性があります。"
+                else:
+                    reason += "差が小さいため、哲学遺伝子の効果は弱いか、通常個体割合80%によって薄まっている可能性があります。"
+            elif name.startswith("通常100%"):
+                reason += "哲学個体を完全に消した対照です。基準との差が大きければ、哲学個体の存在自体が生態系に影響している可能性があります。差が小さければ、現状の哲学補正は中立行動に近い可能性があります。"
+            elif name.startswith("哲学100%"):
+                reason += "通常個体を消した条件です。ここで個体群が強くなるなら哲学型同士の相互作用が有利、弱くなるなら通常個体が緩衝材・中立対照として生態安定に寄与している可能性があります。"
+            elif name.startswith("捕食OFF"):
+                reason += "捕食を外した差なので、捕食が短期資源獲得として有利なのか、失敗コストや個体数減少として不利なのかを読む条件です。"
+            elif name.startswith("密度依存OFF"):
+                reason += "密度依存を外した差なので、過密が出生を抑えているのか、逆に過密抑制が資源枯渇や崩壊を防いでいるのかを読む条件です。"
+            elif name.startswith("局所資源再生OFF"):
+                reason += "局所資源再生を外した差なので、個体が資源を使った場所に再び資源が戻る仕組みが、生存や繁殖へ接続しているかを読む条件です。"
+            elif name.startswith("近親回避OFF"):
+                reason += "近親回避を外した差なので、近親回避が繁殖機会を減らすコストなのか、系統多様性を保つ利益なのかを読む条件です。"
+            elif name.startswith("生態補正OFF"):
+                reason += "複数の生態補正を同時に外しているため、個別因果ではなく、モデル全体がどの程度それらの補正に依存しているかを見る条件です。"
+            lines.append(reason)
+        if not lines:
+            lines.append("比較条件が基準だけなので、因果候補はまだ読めません。")
+        lines.append("注意：v20の差分は、同じseedで条件だけを変えた比較なので、単独ラン内の相関よりは強い根拠です。ただし、最終的な主張にはseed反復を増やし、同じ傾向が再現するかを見る必要があります。")
+        return lines
+
+
     # -------------------------
     # グラフ表示（単位ごとに分けて“読みやすく”）
     # -------------------------
@@ -4153,7 +5163,10 @@ elif view == "統計":
 
     show_auto_interpretation()
     show_whole_run_summary()
+    show_deep_causal_interpretation()
     show_philosophy_gene_flow_summary()
+    show_v19_lineage_flow_summary()
+    show_v20_comparison_mode()
     show_philo_summary_table()
 
     tab_gene, tab_pop, tab_resource, tab_action = st.tabs(["遺伝子", "個体群", "資源", "行動"])
@@ -4161,20 +5174,20 @@ elif view == "統計":
         philo_ratio_cols = [f"{lab} 比率（0-1）" for lab in PHILO_LABELS.values()]
         philo_W_cols = [f"{lab} W" for lab in PHILO_LABELS.values()]
         plot_stacked_area(
-            "哲学遺伝子頻度の積み上げ推移",
+            "行動型頻度（通常個体＋哲学個体）の積み上げ推移",
             xcol,
             philo_ratio_cols,
             "頻度（0-1）",
             "帯が太くなるほど、その哲学遺伝子が集団内で増えています。ただし全体個体数が落ちているときはWも必ず併読します。"
         )
         plot_latest_bar(
-            "最新世代：哲学遺伝子W",
+            "最新世代：行動型W",
             philo_W_cols,
             "W（コピー増殖率）",
             "1を超える型は前世代よりコピーを増やし、1未満の型はコピーを減らしています。"
         )
         plot_latest_bar(
-            "最新世代：哲学型別 資源収支ネット",
+            "最新世代：行動型別 資源収支ネット",
             [f"{lab} 資源収支ネット（単位/世代）" for lab in PHILO_LABELS.values()],
             "資源収支ネット（単位/世代）",
             "採取・捕食・戦闘獲得から、移動・維持・戦闘損失を引いた値です。繁殖への余剰を作れているかを見ます。"
@@ -4187,7 +5200,7 @@ elif view == "統計":
             "体 / 体世代",
         )
         plot_latest_bar(
-            "最新世代：哲学型別 空腹個体比率",
+            "最新世代：行動型別 空腹個体比率",
             [f"{lab} 空腹個体比率（0-1）" for lab in PHILO_LABELS.values()],
             "空腹比率（0-1）",
             "高い型は資源獲得に失敗しやすいか、消費が大きすぎる可能性があります。"
@@ -4213,7 +5226,7 @@ elif view == "統計":
             "回数（回/世代）",
         )
         plot_latest_bar(
-            "最新世代：哲学型別 捕食試行",
+            "最新世代：行動型別 捕食試行",
             [f"{lab} 捕食試行（回/世代）" for lab in PHILO_LABELS.values()],
             "捕食試行（回/世代）",
             "捕食が多い型は短期資源を得る可能性がありますが、失敗コスト・集団崩壊・非搾取型との比較が必要です。"
@@ -4329,47 +5342,47 @@ elif view == "統計":
         "Simpson多様度"
     )
 
-    st.markdown("### 5.1.1) 哲学遺伝子別の状態")
+    st.markdown("### 5.1.1) 行動型別の状態（通常個体＋哲学個体）")
     plot_lines(
-        "哲学型別：平均所持資源",
+        "行動型別：平均所持資源",
         xcol,
         [f"{lab} 平均所持資源（単位/体）" for lab in PHILO_LABELS.values()],
         "平均所持資源（単位/体）"
     )
     plot_lines(
-        "哲学型別：空腹個体比率",
+        "行動型別：空腹個体比率",
         xcol,
         [f"{lab} 空腹個体比率（0-1）" for lab in PHILO_LABELS.values()],
         "空腹個体比率（0-1）"
     )
     plot_lines(
-        "哲学型別：平均局所密度",
+        "行動型別：平均局所密度",
         xcol,
         [f"{lab} 平均局所密度（体/近傍）" for lab in PHILO_LABELS.values()],
         "局所密度（体/近傍）"
     )
 
-    st.markdown("### 5.1.2) 哲学遺伝子別の行動フロー")
+    st.markdown("### 5.1.2) 行動型別の行動フロー")
     plot_lines(
-        "哲学型別：出生予約",
+        "行動型別：出生予約",
         xcol,
         [f"{lab} 出生予約（体/世代）" for lab in PHILO_LABELS.values()],
         "出生予約（体/世代）"
     )
     plot_lines(
-        "哲学型別：実出生と死亡",
+        "行動型別：実出生と死亡",
         xcol,
         [f"{lab} 実出生（体/世代）" for lab in PHILO_LABELS.values()] + [f"{lab} 死亡（体/世代）" for lab in PHILO_LABELS.values()],
         "個体数（体/世代）"
     )
     plot_lines(
-        "哲学型別：資源収支ネット",
+        "行動型別：資源収支ネット",
         xcol,
         [f"{lab} 資源収支ネット（単位/世代）" for lab in PHILO_LABELS.values()],
         "資源収支ネット（単位/世代）"
     )
     plot_lines(
-        "哲学型別：捕食試行",
+        "行動型別：捕食試行",
         xcol,
         [f"{lab} 捕食試行（回/世代）" for lab in PHILO_LABELS.values()],
         "捕食試行（回/世代）"
