@@ -4301,7 +4301,7 @@ elif view == "統計":
 
 
     def show_v19_lineage_flow_summary():
-        """v19：親子フロー・行動フロー・チーム内偏りから、遺伝子の流れと因果候補を読む。"""
+        """v19：親子フロー・行動フロー・チーム内偏りから、遺伝子の流れと原因の見立てを読む。"""
         if len(df) < 2:
             return
 
@@ -4460,7 +4460,7 @@ elif view == "統計":
                 mix_msg = "同型ペアと混合ペアがどちらもあります。型ごとの行動差と、型間の組み合わせ効果の両方を見る必要があります。"
             explain_box("親組み合わせから見た遺伝子の流れ", f"混合ペア比率は **{mixed_ratio:.3f}** です。{mix_msg}")
 
-        # 3) 行動選択から見る因果候補
+        # 3) 行動選択から見る原因の見立て
         action_rows = []
         for lab in PHILO_LABELS.values():
             row = {"型": lab}
@@ -4500,7 +4500,7 @@ elif view == "統計":
                 if not np.isnan(pred_rate) and pred_rate > 0.08:
                     extra.append("捕食が多く高リスク資源獲得志向")
                 action_explain.append(f"**{lab}** は最多行動が **{dom}** です。" + (" / ".join(extra) if extra else "大きく偏った行動は見えにくいです。"))
-        explain_box("行動選択が因果候補になる理由", "\n\n".join(action_explain) + "\n\n行動率は直接の原因そのものではありませんが、出生・死亡・資源収支の前段階です。たとえば交尾率が高いのに子が少ないなら、配偶者・空きマス・近親回避で止まっている可能性があります。採取率が高いのに空腹率が高いなら、採取量・資源配置・移動コストの問題が疑えます。")
+        explain_box("行動選択が原因の見立てになる理由", "\n\n".join(action_explain) + "\n\n行動率は直接の原因そのものではありませんが、出生・死亡・資源収支の前段階です。たとえば交尾率が高いのに子が少ないなら、配偶者・空きマス・近親回避で止まっている可能性があります。採取率が高いのに空腹率が高いなら、採取量・資源配置・移動コストの問題が疑えます。")
 
         # 4) 赤/青×哲学型の偏り
         team_rows = []
@@ -4534,7 +4534,7 @@ elif view == "統計":
                 f"赤側に最も偏っている型は **{red_bias['型']}**、青側に最も偏っている型は **{blue_bias['型']}** です。赤青の個体数差を見るだけだとチーム色の優劣に見えますが、実際にはチーム内の哲学型・タカハト型・資源格差が偏っているだけの可能性があります。したがって、赤青差は『チームそのものの効果』と『チーム内遺伝子構成の効果』を分けて読む必要があります。"
             )
 
-        # 5) 相関からの因果候補をもう一段増やす
+        # 5) 相関からの原因の見立てをもう一段増やす
         corr_rows = []
         for lab in PHILO_LABELS.values():
             pairs = [
@@ -4552,16 +4552,16 @@ elif view == "統計":
                     corr_rows.append({"型": lab, "関係": name, "相関": cv, "読み方": "正なら一緒に増える / 負なら逆方向。因果の証明ではなく、疑う経路の候補。"})
         if corr_rows:
             corr_df = pd.DataFrame(corr_rows).sort_values("相関", key=lambda s: s.abs(), ascending=False).head(30)
-            st.markdown("#### G. 頻度変化とイベントの相関：因果候補ランキング")
+            st.markdown("#### G. 頻度変化とイベントの相関：原因の見立てランキング")
             st.dataframe(corr_df, use_container_width=True, hide_index=True, column_config={
                 "相関": st.column_config.NumberColumn(format="%+.3f"),
             })
             top_corr = corr_df.iloc[0]
-            explain_box("因果候補の読み方", f"最も強く連動している候補は **{top_corr['型']}** の **{top_corr['関係']}**（相関 {top_corr['相関']:+.3f}）です。これは原因の証明ではありませんが、次にON/OFF比較やseed比較で検証すべき最有力候補です。")
+            explain_box("原因の見立ての読み方", f"最も強く連動している候補は **{top_corr['型']}** の **{top_corr['関係']}**（相関 {top_corr['相関']:+.3f}）です。これは原因の証明ではありませんが、次にON/OFF比較やseed比較で検証すべき最有力候補です。")
 
 
     def show_deep_causal_interpretation():
-        """全履歴から、優勢/劣勢・淘汰圧・チーム差・因果候補を文章化する。"""
+        """全履歴から、優勢/劣勢・淘汰圧・チーム差・原因の見立てを文章化する。"""
         if df is None or len(df) < 3:
             st.info("履歴が少ないため、深い読み取りにはもう少し世代を進めてください。")
             return
@@ -4793,7 +4793,7 @@ elif view == "統計":
 
 
     def show_v21_deep_gene_causality():
-        """v21：遺伝子相互作用・淘汰圧・因果候補を、文章として深く読む。"""
+        """v21：遺伝子相互作用・淘汰圧・原因の見立てを、文章として深く読む。"""
         if df is None or len(df) < 4:
             st.info("深層因果サマリーには、もう少し世代履歴が必要です。最低でも数世代、できれば50世代以上進めてください。")
             return
@@ -4872,7 +4872,7 @@ elif view == "統計":
 
         st.markdown("### 深層因果サマリー：遺伝子が、どの経路で、何に押されているか")
         explain_box(
-            "この欄で読む因果の形",
+            "この欄で見ること",
             "このモデルでの因果は、いきなり『カント型だから勝った』のように読みません。より正確には、**遺伝子 → 行動評価 → 実際の行動 → 資源収支・危険回避・出会い → 出生/死亡 → W/頻度** という鎖で読みます。さらに、哲学遺伝子は単独で働くとは限らず、タカ/ハト遺伝子、捕食傾向遺伝子、赤青チーム、局所密度、資源配置と結合して効果を変えます。つまりここでは『どの遺伝子が強いか』だけでなく、**どの遺伝子の効果が、別の遺伝子や環境圧によって増幅・抑制されているか**を見ます。"
         )
 
@@ -4993,8 +4993,8 @@ elif view == "統計":
                 f"現時点で最も優勢に見えるのは **{best['型']}** です。ただし、これは『その思想名が本質的に強い』という意味ではありません。**{best['型']}** は、{best['主な経路']} という経路でコピー維持に近づいており、さらに {best['同伴遺伝子・媒介']} という媒介条件を持っています。つまり、この型の優位は、哲学遺伝子単体ではなく、資源収支・出生死亡・タカ/捕食/チーム偏りとの組み合わせとして読まなければいけません。\n\n最も劣勢に見えるのは **{worst['型']}** です。**{worst['型']}** は、{worst['主な経路']} と出ていますが、比率変化・W・出生死亡差の合成では弱く出ています。ここで見るべきなのは、死亡が多いのか、出生へ変換できないのか、資源収支が悪いのか、あるいは同伴しているタカ/捕食/チーム構成が不利に働いているのかです。"
             )
 
-        # --- B: 各型の因果鎖 ---
-        st.markdown("#### B. 各遺伝子型の因果鎖：増減を、行動→資源→出生/死亡へ分解する")
+        # --- B: 各型の流れ ---
+        st.markdown("#### B. 各遺伝子型の流れ：増減を、行動→資源→出生/死亡へ分解する")
         driver_candidates = [
             ("資源収支", "{lab} 資源収支ネット（単位/世代）", "資源を増やせるほど、維持コスト・繁殖投資を支払い、死亡を避けやすくなります。"),
             ("空腹率", "{lab} 空腹個体比率（0-1）", "空腹率が高い型は、同じ個体数でも死亡圧・繁殖停止圧を受けやすくなります。"),
@@ -5153,7 +5153,7 @@ elif view == "統計":
             add_pressure("繁殖出口圧", "出生-死亡", True, "出生-死亡が高い型は、親または子としてコピー数を直接増やせている。")
             add_pressure("争奪結合圧", "タカ比率差", True, "タカ比率差が高い型は争奪戦略と結合している。タカが有利な環境では伸び、戦闘コストが高い環境では逆に罰される。")
             add_pressure("捕食結合圧", "捕食傾向差", True, "捕食傾向が多い型は捕食成功が高い環境で有利だが、失敗コストが強い環境では不利になる。")
-            add_pressure("チーム媒介圧", "赤偏り", True, "赤青の一方が空間配置・資源・局所密度で有利な場合、そのチームに偏った型が間接的に有利になる。")
+            add_pressure("チームによる影響圧", "赤偏り", True, "赤青の一方が空間配置・資源・局所密度で有利な場合、そのチームに偏った型が間接的に有利になる。")
         if pressure_rows:
             st.dataframe(pd.DataFrame(pressure_rows), use_container_width=True, hide_index=True)
             explain_box(
@@ -5199,7 +5199,7 @@ elif view == "統計":
                 top_comp = cdf.iloc[0] if len(cdf) else None
                 bottom_comp = cdf.iloc[-1] if len(cdf) else None
                 explain_box(
-                    "チーム優位の因果候補",
+                    "チーム優位の原因の見立て",
                     f"最新個体数だけなら状態は **{side}** です。ただし、チーム優位はチーム色そのものの効果とは限りません。赤青で平均資源・Gini・タカ比率・哲学型構成が違えば、その差が媒介している可能性があります。現在、赤側に相対的に偏っている型は **{top_comp['型'] if top_comp is not None else '—'}**、青側に相対的に偏っている型は **{bottom_comp['型'] if bottom_comp is not None else '—'}** です。もし優位チームに特定の型やタカ/ハトが偏っているなら、チーム差は『色』ではなく、内部遺伝子構成と空間配置の結果として読むべきです。"
                 )
 
@@ -5301,16 +5301,16 @@ elif view == "統計":
         def evidence_strength(items):
             score = sum(1 for v in items if bool(v))
             if score >= 4:
-                return "強い候補"
+                return "かなり有力"
             if score >= 2:
-                return "中程度の候補"
-            return "弱い候補"
+                return "ある程度有力"
+            return "まだ弱い"
 
         st.markdown("### 環境-遺伝子統合レポート：何が、どこで、なぜ選ばれたか")
         st.markdown(
             "この欄は、単に『どの遺伝子が増えたか』ではなく、**環境の状態**と**遺伝子の行動傾向**を結びつけて読みます。"
             "このモデルでは、遺伝子は直接コピー数を増やすのではなく、行動評価を少し変えます。その行動評価が、資源のある場所へ行けるか、過密を避けられるか、交尾相手に出会えるか、捕食や争奪のリスクを取るかを変えます。"
-            "したがって、本当に見るべき因果鎖は **遺伝子 → 行動 → 環境との接触 → 資源/危険/繁殖機会 → 出生・死亡 → W** です。"
+            "したがって、本当に見るべき流れは **遺伝子 → 行動 → 環境との接触 → 資源/危険/繁殖機会 → 出生・死亡 → W** です。"
         )
 
         labels = list(PHILO_LABELS.values())
@@ -5464,7 +5464,7 @@ elif view == "統計":
             red_delta = lastv("赤個体数（体）",0)-first("赤個体数（体）",0)
             blue_delta = lastv("青個体数（体）",0)-first("青個体数（体）",0)
             env_rows.append({
-                "環境・圧": "赤青チーム媒介圧",
+                "環境・圧": "赤青チームによる影響圧",
                 "観察値": f"赤変化 {red_delta:+.0f}、青変化 {blue_delta:+.0f}、最終赤青差 {lastv('赤個体数（体）',0)-lastv('青個体数（体）',0):+.0f}",
                 "何を意味するか": "チーム差が出ると、哲学型の優劣がチーム偏りで見かけ上変わる。強いチームに偏った型は、その型自体が強くなくても残る。",
                 "遺伝子への作用": "各哲学型の赤比率・青比率を見て、チーム差が哲学型の増減を媒介していないか確認する必要がある。",
@@ -5523,7 +5523,7 @@ elif view == "統計":
         global_local_den = meanv("平均局所密度（体/近傍）", np.nan)
         for _, r in prof.iterrows():
             lab = str(r["型"])
-            with st.expander(f"{lab}：環境との結びつき・遺伝子相互作用・因果候補", expanded=(lab in [str(strongest['型']), str(weakest['型'])])):
+            with st.expander(f"{lab}：環境との結びつき・遺伝子相互作用・原因の見立て", expanded=(lab in [str(strongest['型']), str(weakest['型'])])):
                 lines = []
                 lines.append(f"**観察事実。** {lab} は初期比率 **{fmt(r.get('初期比率'))}** から最新比率 **{fmt(r.get('最新比率'))}** へ変化し、比率変化は **{fmt(r.get('比率変化'),3, signed=True)}** です。平均Wは **{fmt(r.get('平均W'))}**、最新Wは **{fmt(r.get('最新W'))}** です。ここまでは実際のログから読める頻度変化です。")
                 # environment contact
@@ -5579,9 +5579,9 @@ elif view == "統計":
                 if r.get("比率変化", 0) < -0.03 and r.get("平均W", 1) < 1.0: support.append("比率低下とW低下が同じ方向")
                 strength = evidence_strength(support)
                 if support:
-                    lines.append(f"**因果候補の強さ。** この型については **{strength}** です。根拠は「" + "、".join(support) + "」です。ただし、これは単独ラン内の推定なので、最終確認には比較実験やseed反復が必要です。")
+                    lines.append(f"**原因の見立ての強さ。** この型については **{strength}** です。根拠は「" + "、".join(support) + "」です。ただし、これは単独ラン内の推定なので、最終確認には比較実験やseed反復が必要です。")
                 else:
-                    lines.append("**因果候補の強さ。** まだ弱いです。比率・W・出生死亡・資源収支の方向がそろっていないため、ドリフト、初期配置、チーム偏り、他遺伝子との結合で説明できる可能性があります。")
+                    lines.append("**原因の見立ての強さ。** まだ弱いです。比率・W・出生死亡・資源収支の方向がそろっていないため、ドリフト、初期配置、チーム偏り、他遺伝子との結合で説明できる可能性があります。")
                 st.markdown("\n\n".join(lines))
 
         # --- 淘汰圧ごとの作用対象 ---
@@ -5624,13 +5624,13 @@ elif view == "統計":
         })
         st.dataframe(pd.DataFrame(pressure_rows), use_container_width=True, hide_index=True)
 
-        # --- 事実・解釈・未確定の分離 ---
-        st.markdown("#### F. 事実・強い候補・未確定を分ける")
+        # --- 事実・解釈・まだ決められないの分離 ---
+        st.markdown("#### F. 事実・かなり有力・まだ決められないを分ける")
         claims = []
         claims.append({"区分":"観察事実", "内容":f"最も総合優勢スコアが高い型は {strongest['型']}、最も低い型は {weakest['型']}。これはログから算出した事実だが、スコア式は分析補助である。"})
-        claims.append({"区分":"強い候補", "内容":f"{strongest['型']} が伸びた理由は、比率変化・W・出生死亡・資源収支のうち複数が同方向なら強くなる。表Bと各型の詳細欄で、どの経路がそろっているか確認する。"})
-        claims.append({"区分":"弱い候補", "内容":"タカ比率・捕食傾向・赤青偏りが強い場合、哲学型そのものではなく、同伴遺伝子やチーム環境が結果を媒介している可能性がある。"})
-        claims.append({"区分":"未確定", "内容":"単独ランだけでは、初期配置・資源配置・遺伝的浮動を完全に排除できない。比較実験実験で、哲学遺伝子OFF、捕食OFF、密度依存OFF、通常100%などを同seedで比較する必要がある。"})
+        claims.append({"区分":"かなり有力", "内容":f"{strongest['型']} が伸びた理由は、比率変化・W・出生死亡・資源収支のうち複数が同方向なら強くなる。表Bと各型の詳細欄で、どの経路がそろっているか確認する。"})
+        claims.append({"区分":"まだ弱い", "内容":"タカ比率・捕食傾向・赤青偏りが強い場合、哲学型そのものではなく、同伴遺伝子やチーム環境が結果を媒介している可能性がある。"})
+        claims.append({"区分":"まだ決められない", "内容":"単独ランだけでは、初期配置・資源配置・遺伝的浮動を完全に排除できない。比較実験実験で、哲学遺伝子OFF、捕食OFF、密度依存OFF、通常100%などを同seedで比較する必要がある。"})
         st.dataframe(pd.DataFrame(claims), use_container_width=True, hide_index=True)
 
         # --- 次に見るべき比較 ---
@@ -5648,11 +5648,11 @@ elif view == "統計":
         st.dataframe(pd.DataFrame(next_rows), use_container_width=True, hide_index=True)
 
     def show_v20_comparison_mode():
-        """v20：同じseedで条件だけを変え、観察された差分を因果候補として読む。"""
+        """v20：同じseedで条件だけを変え、観察された差分を原因の見立てとして読む。"""
         st.markdown("### 比較実験モード：同じseedで条件だけを変える")
         explain_box(
             "なぜ比較実験が必要か",
-            "一つのランだけでは、遺伝子頻度の変化が本当にその遺伝子の効果なのか、初期配置・資源配置・偶然の出生死亡で起きたのかを分けにくいです。比較実験では、同じseedを使ったまま一つの条件だけを変えて走らせます。すると、初期配置の偶然をかなりそろえたうえで、哲学遺伝子・通常個体割合・捕食・密度依存・局所資源再生・近親回避がどの程度結果を変えたかを比較できます。これは因果の証明そのものではありませんが、単なる相関よりずっと強い因果候補になります。"
+            "一つのランだけでは、遺伝子頻度の変化が本当にその遺伝子の効果なのか、初期配置・資源配置・偶然の出生死亡で起きたのかを分けにくいです。比較実験では、同じseedを使ったまま一つの条件だけを変えて走らせます。すると、初期配置の偶然をかなりそろえたうえで、哲学遺伝子・通常個体割合・捕食・密度依存・局所資源再生・近親回避がどの程度結果を変えたかを比較できます。これは因果の証明そのものではありませんが、単なる相関よりずっと強い原因の見立てになります。"
         )
 
         scenario_options = {
@@ -5734,7 +5734,7 @@ elif view == "統計":
                     agg[f"Δ{c}(基準差)"] = pd.to_numeric(agg[c], errors="coerce") - float(base[c])
 
         st.markdown("#### v20-A. 条件別の比較表")
-        st.caption("Δ列は基準ランとの差です。同じseedで条件だけを変えているので、差が大きいほどその条件が結果を動かした因果候補になります。")
+        st.caption("Δ列は基準ランとの差です。同じseedで条件だけを変えているので、差が大きいほどその条件が結果を動かした原因の見立てになります。")
         fmt_cols = {}
         for c in agg.columns:
             if c == "条件":
@@ -5774,7 +5774,7 @@ elif view == "統計":
             st.dataframe(ph_agg, use_container_width=True, hide_index=True, column_config={c: st.column_config.NumberColumn(format="%+.3f") for c in philo_delta_cols})
 
         # テキスト解釈：なぜその差が出たと読めるか。
-        st.markdown("#### v20-E. 比較から読める因果候補")
+        st.markdown("#### v20-E. 比較から読める原因の見立て")
         causal_lines = _v20_causal_text(agg)
         for line in causal_lines:
             st.markdown(f"- {line}")
@@ -5979,7 +5979,7 @@ elif view == "統計":
                 reason += "複数の生態補正を同時に外しているため、個別因果ではなく、モデル全体がどの程度それらの補正に依存しているかを見る条件です。"
             lines.append(reason)
         if not lines:
-            lines.append("比較条件が基準だけなので、因果候補はまだ読めません。")
+            lines.append("比較条件が基準だけなので、原因の見立てはまだ読めません。")
         lines.append("注意：v20の差分は、同じseedで条件だけを変えた比較なので、単独ラン内の相関よりは強い根拠です。ただし、最終的な主張にはseed反復を増やし、同じ傾向が再現するかを見る必要があります。")
         return lines
 
@@ -6336,9 +6336,9 @@ elif view == "統計":
                 if r["親として残したコピー"] > r["死亡"]: supports.append("親出生が死亡を上回る")
                 if not pd.isna(r["資源収支"]) and r["資源収支"] > 0 and not pd.isna(r["空腹率"]) and r["空腹率"] < avg_hunger: supports.append("資源収支と空腹率が有利")
                 if supports:
-                    lines.append("**因果候補の強さ。** 根拠は「" + "、".join(supports) + "」です。複数の根拠が同じ方向なら比較的強い候補ですが、単独ランなので最終判断には比較実験が必要です。")
+                    lines.append("**原因の見立ての強さ。** 根拠は「" + "、".join(supports) + "」です。複数の根拠が同じ方向なら比較的かなり有力ですが、単独ランなので最終判断には比較実験が必要です。")
                 else:
-                    lines.append("**因果候補の強さ。** まだ弱いです。比率、W、親出生、死亡、資源収支が一方向にそろっていないため、初期配置・遺伝的浮動・チーム偏りでも説明できます。")
+                    lines.append("**原因の見立ての強さ。** まだ弱いです。比率、W、親出生、死亡、資源収支が一方向にそろっていないため、初期配置・遺伝的浮動・チーム偏りでも説明できます。")
                 st.markdown("\n\n".join(lines))
 
         # 5) pressures target table
@@ -6349,7 +6349,7 @@ elif view == "統計":
             {"淘汰圧":"飢餓/死亡圧", "利益を受けやすい型":strongest_name(rows,"空腹率", reverse=False), "被害を受けやすい型":strongest_name(rows,"死亡"), "どう作用するか":"死亡はコピーを直接減らす。低死亡型は増殖力が弱くても相対的に残る場合がある。"},
             {"淘汰圧":"争奪媒介圧", "利益を受けやすい型":"タカ型またはハト型のうち、争奪ネットの符号と合う型", "被害を受けやすい型":"争奪ネットと逆向きの型", "どう作用するか":f"争奪ネットは {fmt(contest_net,2,True)}。正ならタカ/戦闘寄りが利得を得やすく、負なら戦闘回避が有利になりやすい。"},
             {"淘汰圧":"捕食媒介圧", "利益を受けやすい型":"捕食成功率が高い時の捕食傾向型", "被害を受けやすい型":"捕食成功率が低い時の捕食傾向型", "どう作用するか":f"捕食成功率は {fmt(pred_success)}。捕食は資源獲得にも失敗コストにもなるので、試行回数だけでは判断しない。"},
-            {"淘汰圧":"チーム媒介圧", "利益を受けやすい型":f"優位チーム側に偏る型（赤:{red_top} / 青:{blue_top}）", "被害を受けやすい型":"不利な資源・密度・内部構成のチームに偏る型", "どう作用するか":"チーム色は見た目の分類だが、空間配置・資源アクセス・相互作用相手を媒介する。色ではなく、その色の環境条件を読む。"},
+            {"淘汰圧":"チームによる影響圧", "利益を受けやすい型":f"優位チーム側に偏る型（赤:{red_top} / 青:{blue_top}）", "被害を受けやすい型":"不利な資源・密度・内部構成のチームに偏る型", "どう作用するか":"チーム色は見た目の分類だが、空間配置・資源アクセス・相互作用相手を媒介する。色ではなく、その色の環境条件を読む。"},
         ]
         st.dataframe(pd.DataFrame(pressure_rows), use_container_width=True, hide_index=True)
 
@@ -6675,7 +6675,7 @@ elif view == "統計":
             "確認する列": "型別捕食傾向比率、捕食試行、捕食成功、捕食失敗、捕食獲得、死亡"
         })
         pressure_rows.append({
-            "環境圧": "チーム媒介圧",
+            "環境圧": "チームによる影響圧",
             "見ている数値": f"赤 {safe_int(red0)}→{safe_int(red1)} / 青 {safe_int(blue0)}→{safe_int(blue1)}",
             "原因として読む条件": "赤青の数に差が出るが、資源・Gini・内部遺伝子構成も同時に違うとき。",
             "遺伝子への作用": "チーム色そのものではなく、その色が置かれた空間、資源、相互作用相手、同伴遺伝子が媒介して特定型を押し上げる。",
@@ -6702,7 +6702,7 @@ elif view == "統計":
         )
 
         # ---------- strong narrative hypotheses ----------
-        st.markdown("#### 4. 現時点での有力な因果仮説")
+        st.markdown("#### 4. 現時点での有力な説明")
         hypothesis_lines = []
         if top_ratio:
             lab = top_ratio["型"]
@@ -6722,8 +6722,8 @@ elif view == "統計":
         if high_hunger:
             hypothesis_lines.append(f"空腹圧を強く受けていそうなのは **{high_hunger['型']}** です。空腹率が高い型は、死亡に直結しなくても、交尾や移動に使う余剰が減り、長期的にはコピー数で不利になります。")
         if not hypothesis_lines:
-            hypothesis_lines.append("まだ十分な履歴がないか、型別ログが不足しているため、有力な因果仮説は出せません。世代数を増やすと、資源・密度・出生・死亡の経路が見えやすくなります。")
-        explain_box("因果仮説の本文", join_sentences(hypothesis_lines))
+            hypothesis_lines.append("まだ十分な履歴がないか、型別ログが不足しているため、有力な説明は出せません。世代数を増やすと、資源・密度・出生・死亡の経路が見えやすくなります。")
+        explain_box("説明の本文", join_sentences(hypothesis_lines))
 
         # ---------- team analysis ----------
         st.markdown("#### 5. 赤チーム・青チーム：どちらが多いかではなく、なぜ差が生まれたか")
@@ -6880,7 +6880,7 @@ elif view == "統計":
                             med_lines.append("青チームに偏っています。この型の結果には、青側の資源・格差・相互作用相手の条件が混ざっている可能性があります。")
                     if not med_lines:
                         med_lines.append("目立つ同伴遺伝子・チーム偏りは弱めです。この場合、この型の行動評価そのもの、または局所環境差を優先して見ます。")
-                    lines.append("**遺伝子間作用・チーム媒介。** " + " ".join(med_lines))
+                    lines.append("**遺伝子間作用・チームによる影響。** " + " ".join(med_lines))
                     # conclusion and test
                     test_lines = []
                     if not pd.isna(r["比率変化"]) and r["比率変化"] > 0:
@@ -6893,7 +6893,7 @@ elif view == "統計":
                     st.markdown(join_sentences(lines))
 
         # ---------- facts / hypotheses / unknowns ----------
-        st.markdown("#### 7. 事実・因果候補・未確定を分ける")
+        st.markdown("#### 7. 事実・原因の見立て・まだ決められないを分ける")
         fact_lines = []
         if top_ratio:
             fact_lines.append(f"観察事実：{top_ratio['型']} の比率変化が最も大きい（{arrow_delta(top_ratio['比率変化'])}）。")
@@ -6902,26 +6902,26 @@ elif view == "統計":
         fact_lines.append(f"観察事実：終盤Wは {fmt(pop_w_late)}、出生/死亡比は {fmt(bd_ratio_late,2)}、終盤Giniは {fmt(gini_late)}。")
         strong_lines = []
         if top_ratio and not pd.isna(top_ratio.get("終盤W", np.nan)) and top_ratio["終盤W"] >= 1 and top_ratio.get("親出生", 0) > top_ratio.get("死亡", 0):
-            strong_lines.append(f"強めの因果候補：{top_ratio['型']} は比率・終盤W・親出生が同じ方向にそろっているため、繁殖出口を通じて増えた可能性がある。")
+            strong_lines.append(f"強めの原因の見立て：{top_ratio['型']} は比率・終盤W・親出生が同じ方向にそろっているため、繁殖出口を通じて増えた可能性がある。")
         if top_resource and not pd.isna(top_resource.get("資源収支", np.nan)) and top_resource["資源収支"] > avg.get("資源収支", 0):
-            strong_lines.append(f"強めの因果候補：{top_resource['型']} は資源収支が高く、資源アクセス圧の利益を受けている可能性がある。")
+            strong_lines.append(f"強めの原因の見立て：{top_resource['型']} は資源収支が高く、資源アクセス圧の利益を受けている可能性がある。")
         if low_hunger and not pd.isna(low_hunger.get("空腹率", np.nan)) and low_hunger["空腹率"] < avg.get("空腹率", 0):
-            strong_lines.append(f"強めの因果候補：{low_hunger['型']} は空腹率が低く、死亡回避・繁殖余剰の点で有利な可能性がある。")
+            strong_lines.append(f"強めの原因の見立て：{low_hunger['型']} は空腹率が低く、死亡回避・繁殖余剰の点で有利な可能性がある。")
         if not strong_lines:
-            strong_lines.append("強めの因果候補：まだ複数指標が同じ方向にそろっていません。現時点では、初期配置やチーム偏りの影響も大きく残ります。")
+            strong_lines.append("強めの原因の見立て：まだ複数指標が同じ方向にそろっていません。現時点では、初期配置やチーム偏りの影響も大きく残ります。")
         weak_lines = []
-        weak_lines.append("弱い候補：チーム差は、チーム色そのものではなく、チーム内の資源・Gini・タカ比率・行動型構成で説明できる可能性があります。")
-        weak_lines.append("弱い候補：哲学型差は、哲学型単独ではなく、タカ/ハト、捕食傾向、通常個体割合、有利な局所環境との結合効果かもしれません。")
+        weak_lines.append("まだ弱い：チーム差は、チーム色そのものではなく、チーム内の資源・Gini・タカ比率・行動型構成で説明できる可能性があります。")
+        weak_lines.append("まだ弱い：哲学型差は、哲学型単独ではなく、タカ/ハト、捕食傾向、通常個体割合、有利な局所環境との結合効果かもしれません。")
         unknown_lines = []
-        unknown_lines.append("未確定：単独ランでは、遺伝子の効果と偶然の配置差を分離できません。v20比較実験で同じseedの条件差を見ます。")
-        unknown_lines.append("未確定：チーム別の出生・死亡、型別の死因、交尾失敗理由、移動コストの内訳がまだ弱いです。これらを追加すると、因果推定はさらに強くなります。")
+        unknown_lines.append("まだ決められない：単独ランでは、遺伝子の効果と偶然の配置差を分離できません。v20比較実験で同じseedの条件差を見ます。")
+        unknown_lines.append("まだ決められない：チーム別の出生・死亡、型別の死因、交尾失敗理由、移動コストの内訳がまだ弱いです。これらを追加すると、因果推定はさらに強くなります。")
         st.markdown("**観察事実**")
         for x in fact_lines:
             st.markdown(f"- {x}")
-        st.markdown("**強めの因果候補**")
+        st.markdown("**強めの原因の見立て**")
         for x in strong_lines:
             st.markdown(f"- {x}")
-        st.markdown("**弱い因果候補・別解釈**")
+        st.markdown("**弱い原因の見立て・別解釈**")
         for x in weak_lines:
             st.markdown(f"- {x}")
         st.markdown("**まだ断定しないこと**")
@@ -7022,12 +7022,12 @@ elif view == "統計":
         def strength_label(*conditions):
             true_count = sum(1 for c in conditions if bool(c))
             if true_count >= 3:
-                return "かなり強い候補"
+                return "かなりかなり有力"
             if true_count == 2:
-                return "中程度の候補"
+                return "ある程度有力"
             if true_count == 1:
-                return "弱い候補"
-            return "未確定"
+                return "まだ弱い"
+            return "まだ決められない"
 
         def section(title, body):
             st.markdown(f"#### {title}")
@@ -7400,7 +7400,7 @@ elif view == "統計":
 
 
     def show_public_causal_report_v26():
-        """外部向け：結果ではなく、結果を生んだ経路を数珠つなぎで説明する因果レポート。"""
+        """外部向け：結果だけで止めず、結果を生んだ流れを自然な文章でたどる分析レポート。"""
         if len(df) < 3:
             st.info("分析レポートには、少なくとも3世代以上の履歴が必要です。まず数十世代ほど進めてください。")
             return
@@ -7476,7 +7476,7 @@ elif view == "統計":
             return "\n\n".join([str(x).strip() for x in lines if str(x).strip()])
         def strength(*conds):
             n = sum(1 for c in conds if bool(c))
-            return "強い" if n >= 4 else ("中程度" if n >= 2 else ("弱い" if n == 1 else "未確定"))
+            return "強い" if n >= 4 else ("中程度" if n >= 2 else ("弱い" if n == 1 else "まだ決められない"))
         def comp_word(value, ref, margin):
             if pd.isna(value) or pd.isna(ref):
                 return "不明"
@@ -7598,7 +7598,7 @@ elif view == "統計":
         st.markdown("### 総合分析レポート")
         explain_box(
             "このレポートが目指す説明",
-            "ここでは『青が多い』『カント型が増えた』のような結果だけを説明とは呼びません。結果の前に、必ず原因の鎖があります。たとえば、ある型が増えたなら、まず親として子を残したのか、それとも死亡が少なかっただけなのかを分けます。親として子を残したなら、なぜ交尾できたのかを見ます。交尾できたなら、資源を持っていたのか、相手に会える密度だったのか、近親回避や過密で止まらなかったのかを見ます。資源を持っていたなら、なぜ持てたのか、足元資源が多かったのか、採取行動が多かったのか、移動コストが低かったのか、争奪や捕食が資源を増やしたのかを見ます。このように、**結果 → 直接原因 → その原因の原因 → 環境条件 → 遺伝子の作用** まで戻って読みます。"
+            "ここでは『青が多い』『カント型が増えた』のような結果だけを説明とは呼びません。結果の前に、必ず原因の鎖があります。たとえば、ある型が増えたなら、まず親として子を残したのか、それとも死亡が少なかっただけなのかを分けます。親として子を残したなら、なぜ交尾できたのかを見ます。交尾できたなら、資源を持っていたのか、相手に会える密度だったのか、近親回避や過密で止まらなかったのかを見ます。資源を持っていたなら、なぜ持てたのか、足元資源が多かったのか、採取行動が多かったのか、移動コストが低かったのか、争奪や捕食が資源を増やしたのかを見ます。このように、**結果 → 直接原因 → さらに手前を見ると → 環境条件 → 遺伝子の作用** まで戻って読みます。"
         )
 
         # --- 世界の圧力を先に特定 ---
@@ -7650,11 +7650,11 @@ elif view == "統計":
             hunger = r.get("空腹率", np.nan)
             net = r.get("資源収支", np.nan)
             if not pd.isna(parent_share) and parent_share > av.get("親出生シェア", np.nan) + 0.03:
-                lines.append(f"**直接原因候補1：繁殖出口を通過している。** {lab} の親出生シェアは {pct(parent_share)} で平均より高めです。つまり、この型は生き残っているだけでなく、親として子世代へコピーを送っています。では、なぜ親になれたのか。親になるには、所持資源、配偶相手、近親回避、空きマス、密度条件を同時に通る必要があります。ここで交尾成功や資源収支が高いなら、繁殖出口を開ける前段階も説明できます。")
+                lines.append(f"**まず見る点：繁殖出口を通過している。** {lab} の親出生シェアは {pct(parent_share)} で平均より高めです。つまり、この型は生き残っているだけでなく、親として子世代へコピーを送っています。では、なぜ親になれたのか。親になるには、所持資源、配偶相手、近親回避、空きマス、密度条件を同時に通る必要があります。ここで交尾成功や資源収支が高いなら、繁殖出口を開ける前段階も説明できます。")
             elif not pd.isna(parent_share) and parent_share < av.get("親出生シェア", np.nan) - 0.03:
-                lines.append(f"**直接原因候補1：繁殖出口が弱い。** {lab} の親出生シェアは {pct(parent_share)} で平均より低めです。もしこの型の比率が維持されているなら、親として増やしたというより、死亡が少ない、または他型がより強く減ったために残っている可能性があります。")
+                lines.append(f"**まず見る点：繁殖出口が弱い。** {lab} の親出生シェアは {pct(parent_share)} で平均より低めです。もしこの型の比率が維持されているなら、親として増やしたというより、死亡が少ない、または他型がより強く減ったために残っている可能性があります。")
             else:
-                lines.append("**直接原因候補1：繁殖出口だけでは説明しにくい。** 親出生シェアは平均付近です。この型の増減は、繁殖よりも資源収支・死亡回避・同伴遺伝子・チーム偏りから読む必要があります。")
+                lines.append("**まず見る点：繁殖出口だけでは説明しにくい。** 親出生シェアは平均付近です。この型の増減は、繁殖よりも資源収支・死亡回避・同伴遺伝子・チーム偏りから読む必要があります。")
             # resource why
             res_bits = []
             if not pd.isna(net):
@@ -7680,9 +7680,9 @@ elif view == "統計":
                 elif hunger > av.get("空腹率", np.nan) + 0.03:
                     res_bits.append(f"空腹率が高い（{pct(hunger)}）ため、資源不足が死亡や繁殖不能へつながる可能性があります")
             if res_bits:
-                lines.append("**その原因の原因：資源との結びつき。** " + "。".join(res_bits) + "。つまり、資源経路は『盤面資源が多いから有利』ではなく、資源地帯への接触、採取判断、移動コスト、空腹回避まで連続して初めてコピーへ接続します。")
+                lines.append("**さらに手前を見ると：資源との結びつき。** " + "。".join(res_bits) + "。つまり、資源経路は『盤面資源が多いから有利』ではなく、資源地帯への接触、採取判断、移動コスト、空腹回避まで連続して初めてコピーへ接続します。")
             else:
-                lines.append("**その原因の原因：資源との結びつき。** 資源経路の証拠はまだ薄いです。この型の変化は、資源よりも繁殖出口、危険回避、チーム偏り、または偶然配置で説明されるかもしれません。")
+                lines.append("**さらに手前を見ると：資源との結びつき。** 資源経路の証拠はまだ薄いです。この型の変化は、資源よりも繁殖出口、危険回避、チーム偏り、または偶然配置で説明されるかもしれません。")
             # interaction genes
             inter = []
             hawk = r.get("タカ比率", np.nan)
@@ -7706,7 +7706,7 @@ elif view == "統計":
                         inter.append("捕食傾向が高い一方、捕食成功率が十分ではありません。捕食は危険接触や失敗コストを増やした可能性があります")
             if not inter:
                 inter.append("タカ/ハトや捕食傾向からは強い媒介が見えません。この型は資源接触、繁殖出口、チーム配置を中心に読むべきです")
-            lines.append("**別遺伝子との作用。** " + "。".join(inter) + "。")
+            lines.append("**ほかの遺伝子との組み合わせ。** " + "。".join(inter) + "。")
             # team mediator
             team_bits = []
             redr, bluer = r.get("赤比率", np.nan), r.get("青比率", np.nan)
@@ -7721,14 +7721,14 @@ elif view == "統計":
             # final chain conclusion
             stg = strength((not pd.isna(rd) and rd > 0), (not pd.isna(wv) and wv >= 1), (not pd.isna(parent_share) and parent_share > av.get("親出生シェア", np.nan)), (not pd.isna(net) and net > av.get("資源収支", np.nan)), (not pd.isna(hunger) and hunger < av.get("空腹率", np.nan)))
             if not pd.isna(rd) and rd > 0:
-                lines.append(f"**数珠つなぎの暫定結論。** {lab} の増加は {stg} な因果候補です。強く言えるのは、比率上昇だけでなく、親出生・資源収支・空腹率・Wが同じ方向にそろう場合です。そろわない場合は、『強いから増えた』ではなく、『他型が減った』『チームに乗った』『同伴遺伝子が効いた』可能性を残します。")
+                lines.append(f"**ここまでの読み取り。** {lab} の増加は {stg} な原因の見立てです。強く言えるのは、比率上昇だけでなく、親出生・資源収支・空腹率・Wが同じ方向にそろう場合です。そろわない場合は、『強いから増えた』ではなく、『他型が減った』『チームに乗った』『同伴遺伝子が効いた』可能性を残します。")
             elif not pd.isna(rd) and rd < 0:
-                lines.append(f"**数珠つなぎの暫定結論。** {lab} の低下は、資源に届かない、出生出口に到達しない、空腹や死亡で削られる、同伴遺伝子が環境と噛み合わない、のどれかで説明されます。上の段落で一番多く出た経路が、次に比較実験で潰すべき原因候補です。")
+                lines.append(f"**ここまでの読み取り。** {lab} の低下は、資源に届かない、出生出口に到達しない、空腹や死亡で削られる、同伴遺伝子が環境と噛み合わない、のどれかで説明されます。上の段落で一番多く出た経路が、次に比較実験で潰すべき原因候補です。")
             else:
-                lines.append(f"**数珠つなぎの暫定結論。** {lab} は大きく動いていません。これは中立という意味ではなく、資源経路の利益と危険/繁殖の不利益が打ち消し合っている可能性があります。")
+                lines.append(f"**ここまでの読み取り。** {lab} は大きく動いていません。これは中立という意味ではなく、資源経路の利益と危険/繁殖の不利益が打ち消し合っている可能性があります。")
             return join(lines)
 
-        st.markdown("#### 3. 遺伝子型ごとの数珠つなぎ説明")
+        st.markdown("#### 3. 遺伝子型ごとの詳しい読み取り")
         for _, rr in gene_df.iterrows():
             r = rr.to_dict()
             expanded = (r.get("型") in [top_ratio.get("型") if top_ratio else None, bottom_ratio.get("型") if bottom_ratio else None, top_parent.get("型") if top_parent else None])
@@ -7736,7 +7736,7 @@ elif view == "統計":
                 st.markdown(gene_chain(r))
 
         # --- Team causal chain ---
-        st.markdown("#### 4. 赤チーム・青チーム差の数珠つなぎ")
+        st.markdown("#### 4. 赤チーム・青チーム差の詳しい読み取り")
         red_res = mean_any(["赤 平均所持資源"], np.nan, late)
         blue_res = mean_any(["青 平均所持資源"], np.nan, late)
         red_g = mean_any(["赤 Gini"], np.nan, late)
@@ -7786,7 +7786,7 @@ elif view == "統計":
                 if biased:
                     team_lines.append(f"{side}側には **{', '.join(biased)}** が偏っています。もしこれらの型が資源収支・親出生・低空腹率で有利なら、{side}の多さはチームの色ではなく、有利な遺伝子型が{side}に多く配置されたことから生じた可能性があります。")
                 team_lines.append("最終的に、チーム差を説明するときは『色が強い』とは言いません。色は空間と相互作用相手をまとめるラベルです。資源、格差、タカ/ハト、捕食傾向、哲学型偏りがその色に集まったとき、色の差として見えるのです。")
-        section("チーム差の因果鎖", join(team_lines) if team_lines else "赤青チーム差を読む列が不足しています。")
+        section("チーム差の読み取り", join(team_lines) if team_lines else "赤青チーム差を読む列が不足しています。")
 
         # --- ranked causal hypotheses ---
         hypotheses = []
@@ -7799,12 +7799,12 @@ elif view == "統計":
                 hypotheses.append({"結果": "出生が資源に強く連動", "直接原因": "資源を持つ個体が交尾・出生へ進みやすい", "さらに前の原因": "採取・争奪・捕食・局所資源接触の差が出生差へ変換されている", "検証": "資源量/局所資源再生を変えた時に優勢型が変わるか"})
             elif abs(c_birth_bag) < 0.2:
                 hypotheses.append({"結果": "出生が資源だけでは説明できない", "直接原因": "相手探索・近親回避・空きマス・密度が出口になっている", "さらに前の原因": "資源を持っても繁殖場所や相手に接続できない", "検証": "密度依存OFF・近親回避OFFで出生差を見る"})
-        st.markdown("#### 5. いま最も疑うべき因果仮説")
+        st.markdown("#### 5. いま特に確かめたい説明")
         if hypotheses:
             st.dataframe(pd.DataFrame(hypotheses), use_container_width=True, hide_index=True)
-            st.markdown("この表の読み方は、結果から原因へ一段で止めず、さらに前の原因へ戻ることです。『資源を多く持つ』だけでは説明不足です。なぜ資源を持てたのか、どの行動で資源に接触したのか、どの別遺伝子がその行動を増幅したのか、どの環境条件なら同じ効果が消えるのか、までが一つの説明になります。")
+            st.markdown("この表では、結果を一段だけ手前に戻して終わりにしません。『資源を多く持っている』だけでは、まだ説明として浅いからです。どこで資源に出会ったのか、なぜそこへ移動したのか、採取・争奪・捕食のどれで資源を得たのか、その行動を強めた遺伝子の組み合わせは何か、そしてどの環境条件を外すと同じ現象が消えるのか。そこまで追うことで、ようやく一つの説明になります。")
         else:
-            st.info("まだ因果仮説を作るには履歴が足りません。")
+            st.info("まだ説明を作るには履歴が足りません。")
 
         # --- big picture ---
         ending = []
