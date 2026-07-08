@@ -2291,6 +2291,13 @@ def log_generation():
     pred_counts = _safe_counts(gene_pred, 2)
     philo_counts = _safe_counts(gene_philo, PHILO_TYPE_COUNT)
 
+    # v20.2 bugfix: 通常個体を追加した後、log_generation内で
+    # normal_count / philosophy_count / philo_only_counts を定義していなかったため、
+    # Streamlit Cloudの自動実行中にNameErrorで停止していた。
+    normal_count = int(philo_counts[int(NORMAL_PHILO_VALUE)]) if len(philo_counts) > int(NORMAL_PHILO_VALUE) else 0
+    philosophy_count = max(int(n) - normal_count, 0)
+    philo_only_counts = np.asarray([philo_counts[i] for i in PHILOSOPHY_VALUES], dtype=np.int32)
+
     prev_contest = np.asarray(w.get("prev_contest_counts", np.maximum(contest_counts, 1)), dtype=np.int32)
     prev_pred = np.asarray(w.get("prev_predation_counts", np.maximum(pred_counts, 1)), dtype=np.int32)
     prev_philo = np.asarray(w.get("prev_philo_counts", np.maximum(philo_counts, 1)), dtype=np.int32)
