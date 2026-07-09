@@ -7812,6 +7812,272 @@ elif view == "統計":
         ending.append("だから、ネオライフゲームの説明は『どれが勝ったか』では終わりません。勝ったように見える遺伝子が、どんな環境の中で、どの行動を通じて、どのボトルネックを抜けたのかを読む必要があります。生物の面白さは、強いものがいつも強いのではなく、環境と噛み合ったものがその時だけ強くなるところにあります。")
         section("生物として面白いところ", join(ending))
 
+
+    def _safe_render_section(title, fn):
+        try:
+            return fn()
+        except Exception as e:
+            st.warning(f"{title}の作成中に一部を表示できませんでした。シミュレーション本体は動いています。")
+            with st.expander("エラー詳細（開発確認用）", expanded=False):
+                st.exception(e)
+
+    def show_public_narrative_report_v28():
+        """外部向け：重くなりすぎない、自然な文章の分析レポート。"""
+        if df is None or len(df) == 0:
+            st.info("まだ統計がありません。まず1世代以上進めてください。")
+            return
+
+        def has(col):
+            return col in df.columns
+        def val(col, default=np.nan):
+            try:
+                if col not in df.columns:
+                    return default
+                v = pd.to_numeric(df[col], errors="coerce").iloc[-1]
+                return default if pd.isna(v) else float(v)
+            except Exception:
+                return default
+        def firstv(col, default=np.nan):
+            try:
+                if col not in df.columns:
+                    return default
+                v = pd.to_numeric(df[col], errors="coerce").iloc[0]
+                return default if pd.isna(v) else float(v)
+            except Exception:
+                return default
+        def meanv(col, default=np.nan):
+            try:
+                if col not in df.columns:
+                    return default
+                s = pd.to_numeric(df[col], errors="coerce")
+                m = float(s.mean())
+                return default if pd.isna(m) else m
+            except Exception:
+                return default
+        def deltav(col):
+            a = firstv(col, np.nan); b = val(col, np.nan)
+            if np.isnan(a) or np.isnan(b):
+                return np.nan
+            return b - a
+        def fmt(x, d=3, signed=False):
+            try:
+                if x is None or pd.isna(x):
+                    return "—"
+                x = float(x)
+                if signed:
+                    return f"{x:+.{d}f}"
+                return f"{x:.{d}f}"
+            except Exception:
+                return "—"
+        def section(title, body):
+            st.markdown(f"#### {title}")
+            st.markdown(body)
+
+        labels = list(PHILO_LABELS.values())
+
+        st.markdown("### 分析レポート")
+        st.markdown(
+            "このレポートでは、増えた・減ったという結果をそのまま説明にしません。"
+            "まず、個体が置かれた環境を見ます。次に、その環境の中でどの行動が起きたかを見ます。"
+            "最後に、その行動が資源、交尾、死亡、子の発生へどうつながったかを読みます。"
+            "遺伝子の有利不利は、単独で決まるのではなく、資源の分布、密度、危険、相手との出会い、別の遺伝子との組み合わせの中で決まります。"
+        )
+
+        pop0, pop1 = firstv("個体数（体）", np.nan), val("個体数（体）", np.nan)
+        wmean = meanv("個体群全体W（増殖率）", np.nan)
+        res0, res1 = firstv("資源総量（単位）", np.nan), val("資源総量（単位）", np.nan)
+        bag0, bag1 = firstv("平均所持資源（単位/体）", np.nan), val("平均所持資源（単位/体）", np.nan)
+        gini0, gini1 = firstv("資源格差Gini（0-1）", np.nan), val("資源格差Gini（0-1）", np.nan)
+        births = meanv("出生数（体/世代）", np.nan)
+        deaths = meanv("死亡数（体/世代）", np.nan)
+        mates = meanv("交尾成功ペア数（組/世代）", meanv("交尾成功数（回/世代）", np.nan))
+        pred_attempt = meanv("捕食試行数（回/世代）", np.nan)
+        pred_success = meanv("捕食成功数（回/世代）", np.nan)
+
+        env_lines = []
+        if not np.isnan(pop0) and not np.isnan(pop1):
+            env_lines.append(f"個体数は **{int(pop0)}体** から **{int(pop1)}体** へ変化しました。これは結果です。ここから先では、この変化が資源不足によるものか、死亡の増加によるものか、繁殖の出口が詰まったためかを分けて見ます。")
+        if not np.isnan(wmean):
+            if wmean < 0.98:
+                env_lines.append(f"平均Wは **{fmt(wmean)}** で、全体にはやや縮小しやすい環境です。この場合、強く見える遺伝子でも、本当に増えているのか、それとも他がより速く減っただけなのかを分ける必要があります。")
+            elif wmean > 1.02:
+                env_lines.append(f"平均Wは **{fmt(wmean)}** で、全体には増えやすい環境です。この場合、どの遺伝子も増えやすくなるため、単純な増加ではなく、他型より増えた理由を読む必要があります。")
+            else:
+                env_lines.append(f"平均Wは **{fmt(wmean)}** で、集団全体はほぼ維持線付近です。この状態では、個体群の大崩壊よりも、内部でどの遺伝子が少しずつ置き換わっているかが見やすくなります。")
+        if not np.isnan(res0) and not np.isnan(res1) and not np.isnan(bag0) and not np.isnan(bag1):
+            res_d, bag_d = res1-res0, bag1-bag0
+            if res_d > 0 and bag_d > 0:
+                env_lines.append("盤面の資源総量も、個体が持つ平均資源も増えています。環境にある資源が、個体の手元まで届いている状態です。この場合、資源に近づく行動、採取行動、争奪や捕食による追加獲得が、出生や生存に結びついている可能性があります。")
+            elif res_d > 0 and bag_d <= 0:
+                env_lines.append("盤面の資源は増えていますが、個体の平均所持資源は増えていません。これは、資源が存在しても個体がそこへ到達できていない、または採取前に移動・維持コストで失っている状態を示します。この時に不利になるのは、資源の場所に届きにくい型、移動が多い型、局所密度の高い場所に閉じ込められる型です。")
+            elif res_d <= 0 and bag_d > 0:
+                env_lines.append("盤面の資源は減っていますが、個体の平均所持資源は増えています。個体が環境資源を強く回収している状態です。短期的には資源を取れる型が有利ですが、長期的には資源の枯渇や個体間格差が死亡圧を生む可能性があります。")
+            else:
+                env_lines.append("盤面資源と平均所持資源がどちらも伸びていません。資源を得る経路が弱く、維持コストや移動コストを支払った後に繁殖へ回す余剰が残りにくい環境です。")
+        if not np.isnan(gini1):
+            if gini1 > 0.45:
+                env_lines.append(f"資源格差Giniは **{fmt(gini1)}** と高めです。資源があるかどうかだけでなく、誰が持っているかが重要になっています。格差が大きいと、少数の個体は繁殖できても、多くの個体は空腹や死亡に近づきます。")
+            elif gini1 < 0.25:
+                env_lines.append(f"資源格差Giniは **{fmt(gini1)}** と低めです。資源が比較的広く行き渡っているため、極端な飢餓による淘汰よりも、交尾相手・空間・行動選択の差が見えやすくなります。")
+        if not np.isnan(births) and not np.isnan(deaths):
+            if births < deaths:
+                env_lines.append(f"平均出生数は **{fmt(births)}**、平均死亡数は **{fmt(deaths)}** で、死亡が出生を上回っています。ここでは『なぜ死んだか』だけでなく、『なぜ子を増やせなかったか』も同時に見る必要があります。資源があっても、近親回避、過密、空きマス不足、相手探索の失敗があれば出生にはつながりません。")
+            else:
+                env_lines.append(f"平均出生数は **{fmt(births)}**、平均死亡数は **{fmt(deaths)}** で、出生が死亡を上回るか同程度です。増えた型を見る時は、死亡回避で残ったのか、親として子を残したのかを分けて読む必要があります。")
+        section("世界全体で何が個体を選び分けているか", "\n\n".join(env_lines) if env_lines else "まだ十分な履歴がなく、環境圧を説明できません。")
+
+        # gene profiles
+        rows = []
+        for lab in labels:
+            row = {"型": lab}
+            row["初期比率"] = firstv(f"{lab} 比率（0-1）", np.nan)
+            row["最新比率"] = val(f"{lab} 比率（0-1）", np.nan)
+            row["比率変化"] = row["最新比率"] - row["初期比率"] if not np.isnan(row["初期比率"]) and not np.isnan(row["最新比率"]) else np.nan
+            row["平均W"] = meanv(f"{lab} W", np.nan)
+            row["最新W"] = val(f"{lab} W", np.nan)
+            row["資源収支"] = meanv(f"{lab} 資源収支ネット（単位/世代）", np.nan)
+            row["平均所持資源"] = meanv(f"{lab} 平均所持資源（単位/体）", np.nan)
+            row["足元資源"] = meanv(f"{lab} 平均足元資源（単位/体）", np.nan)
+            row["局所密度"] = meanv(f"{lab} 平均局所密度（体/近傍）", np.nan)
+            row["空腹率"] = meanv(f"{lab} 空腹個体比率（0-1）", np.nan)
+            row["実出生"] = meanv(f"{lab} 実出生（体/世代）", np.nan)
+            row["死亡"] = meanv(f"{lab} 死亡（体/世代）", np.nan)
+            row["交尾成功"] = meanv(f"{lab} 交尾成功参加（回/世代）", np.nan)
+            row["捕食試行"] = meanv(f"{lab} 捕食試行（回/世代）", np.nan)
+            row["タカ比率"] = val(f"{lab} タカ比率（0-1）", np.nan)
+            row["捕食傾向比率"] = val(f"{lab} 捕食傾向比率（0-1）", np.nan)
+            row["赤比率"] = val(f"{lab} 赤比率（0-1）", np.nan)
+            row["青比率"] = val(f"{lab} 青比率（0-1）", np.nan)
+            # simple score, only for ordering explanation
+            score = 0.0
+            for k, wgt in [("比率変化", 3.0), ("平均W", 2.0), ("資源収支", 0.04), ("実出生", 0.2)]:
+                v = row.get(k, np.nan)
+                if not np.isnan(v):
+                    score += (v-1.0)*wgt if k == "平均W" else v*wgt
+            if not np.isnan(row.get("死亡", np.nan)):
+                score -= row["死亡"] * 0.15
+            if not np.isnan(row.get("空腹率", np.nan)):
+                score -= row["空腹率"] * 0.8
+            row["総合スコア"] = score
+            rows.append(row)
+        prof = pd.DataFrame(rows)
+        if len(prof) > 0:
+            show_cols = ["型","初期比率","最新比率","比率変化","平均W","資源収支","平均所持資源","足元資源","局所密度","空腹率","実出生","死亡","交尾成功","タカ比率","捕食傾向比率","赤比率","青比率"]
+            st.markdown("#### 遺伝子型ごとの読み取りに使う主な値")
+            st.dataframe(prof[[c for c in show_cols if c in prof.columns]], use_container_width=True, hide_index=True)
+
+            prof_sorted = prof.sort_values("総合スコア", ascending=False)
+            top = prof_sorted.iloc[0]
+            bottom = prof_sorted.iloc[-1]
+            section(
+                "どの遺伝子が伸びやすい状態にあるか",
+                f"最も伸びやすい状態にあるのは **{top['型']}** です。ただし、ここで言う強さは名前そのものの強さではありません。"
+                f"比率変化、W、資源収支、空腹率、出生と死亡を合わせて見た時に、いまの環境に一番うまく接続している、という意味です。"
+                f"反対に最も苦しい状態にあるのは **{bottom['型']}** です。この型は、資源に届かない、得た資源を繁殖へ変換できない、死亡を避けられない、または別の遺伝子やチーム環境と噛み合っていない可能性があります。"
+            )
+
+            for _, r in prof_sorted.iterrows():
+                lab = str(r["型"])
+                with st.expander(f"{lab} の増減を、行動と環境から読む", expanded=(lab in [str(top['型']), str(bottom['型'])])):
+                    lines = []
+                    delta = r.get("比率変化", np.nan)
+                    avgw = r.get("平均W", np.nan)
+                    if not np.isnan(delta) and delta > 0:
+                        lines.append(f"{lab} は初期より比率を **{fmt(delta,3,True)}** だけ増やしています。これは、この型のコピーが集団内で相対的に残りやすかったことを示します。ただし、比率上昇だけでは、子を多く残したのか、他型が減った結果なのかは分かりません。")
+                    elif not np.isnan(delta) and delta < 0:
+                        lines.append(f"{lab} は初期より比率を **{fmt(delta,3,True)}** だけ減らしています。これは、この型が現在の環境で相対的に押されていることを示します。原因としては、資源に届かない、死亡が多い、繁殖までつながらない、別遺伝子との組み合わせが悪い、などが考えられます。")
+                    else:
+                        lines.append(f"{lab} の比率は大きくは動いていません。大きく勝っているとも、大きく負けているともまだ言いにくい状態です。")
+                    if not np.isnan(avgw):
+                        if avgw > 1.02:
+                            lines.append(f"平均Wは **{fmt(avgw)}** で、世代をまたいだコピー維持は比較的うまくいっています。ここで次に見るべきなのは、親として子を残したから増えたのか、死亡が少なかったから残ったのかです。")
+                        elif avgw < 0.98:
+                            lines.append(f"平均Wは **{fmt(avgw)}** で、コピー維持には弱さがあります。Wが低い型は、行動が環境条件に合っていないか、繁殖の出口で止まっている可能性があります。")
+                        else:
+                            lines.append(f"平均Wは **{fmt(avgw)}** で、維持線の近くにあります。この場合、わずかな資源差や死亡差、交尾成功の差が長期的な頻度差になりやすいです。")
+
+                    # resource path
+                    resnet = r.get("資源収支", np.nan); bag = r.get("平均所持資源", np.nan); foot = r.get("足元資源", np.nan); hungry = r.get("空腹率", np.nan)
+                    if not np.isnan(resnet):
+                        if resnet > 0:
+                            lines.append(f"資源収支は **{fmt(resnet,2,True)}** で、平均的には維持・移動などの支払いを上回る資源を得ています。もし足元資源も高いなら、この型は資源のある場所にいること自体に成功しています。足元資源が低いのに収支が高いなら、採取以外に争奪や捕食で資源を補っている可能性があります。")
+                        else:
+                            lines.append(f"資源収支は **{fmt(resnet,2,True)}** で、資源を得るよりも支払いが重い状態です。この型が減る場合、単に弱いのではなく、移動・維持・戦闘失敗などのコストが、採取や捕食の利益を上回っていると読めます。")
+                    if not np.isnan(foot) and not np.isnan(bag):
+                        if foot > bag:
+                            lines.append(f"平均足元資源は **{fmt(foot)}**、平均所持資源は **{fmt(bag)}** です。足元には資源があるのに手元資源が伸びない場合、採取行動の頻度、採取前の競合、またはその場に留まれないことが問題になります。")
+                        else:
+                            lines.append(f"平均足元資源は **{fmt(foot)}**、平均所持資源は **{fmt(bag)}** です。手元資源の方が相対的に高いなら、この型は過去の採取・争奪・捕食で得た資源を保持できている可能性があります。")
+                    if not np.isnan(hungry) and hungry > 0.25:
+                        lines.append(f"空腹率は **{fmt(hungry)}** と高めです。空腹は死亡だけでなく、繁殖に回す余剰を削ります。この型が減るなら、資源獲得の失敗が出生低下にもつながっている可能性があります。")
+
+                    # reproduction/survival path
+                    b = r.get("実出生", np.nan); d = r.get("死亡", np.nan); mate = r.get("交尾成功", np.nan)
+                    if not np.isnan(b) and not np.isnan(d):
+                        if b > d:
+                            lines.append(f"実出生は **{fmt(b,2)}**、死亡は **{fmt(d,2)}** で、出生側が上回っています。この型は、ただ生き残るだけでなく、子の発生へつながる経路を持っている可能性があります。")
+                        else:
+                            lines.append(f"実出生は **{fmt(b,2)}**、死亡は **{fmt(d,2)}** で、死亡側が重い状態です。この型が伸びない場合、問題は資源だけではなく、子を残す前に消えること、または出生条件を満たせないことにあります。")
+                    if not np.isnan(mate):
+                        if mate > 0:
+                            lines.append(f"交尾成功参加は **{fmt(mate,2)}** です。交尾行動があっても実出生が伸びない場合、空きマス、近親回避、親資源、密度依存が繁殖を止めている可能性があります。")
+                        else:
+                            lines.append("交尾成功参加がほとんどありません。この場合、資源を持っていても繁殖の入口に入れていない可能性があります。相手との距離、局所密度、行動評価の優先順位を見る必要があります。")
+
+                    # gene interactions
+                    hawk = r.get("タカ比率", np.nan); pred = r.get("捕食傾向比率", np.nan); red = r.get("赤比率", np.nan); blue = r.get("青比率", np.nan)
+                    inter = []
+                    if not np.isnan(hawk):
+                        if hawk > 0.55:
+                            inter.append(f"タカ比率が **{fmt(hawk)}** と高く、争奪による資源獲得に接続しやすい一方、戦闘コストも受けやすい")
+                        elif hawk < 0.45:
+                            inter.append(f"ハト寄りで、戦闘コストを避けやすいが、争奪で資源を奪う力は弱くなりやすい")
+                    if not np.isnan(pred):
+                        if pred > 0.55:
+                            inter.append(f"捕食傾向が **{fmt(pred)}** と高く、捕食成功が多い環境では資源を得やすいが、失敗が多い環境では危険接触になる")
+                        elif pred < 0.45:
+                            inter.append("非捕食寄りで、捕食失敗の危険は少ないが、資源不足時の追加獲得経路も少なくなる")
+                    if not np.isnan(red) and not np.isnan(blue):
+                        if red - blue > 0.15:
+                            inter.append("赤チーム側に偏っているため、赤側の空間配置や資源条件がこの型の結果を押し上げたり押し下げたりしている可能性がある")
+                        elif blue - red > 0.15:
+                            inter.append("青チーム側に偏っているため、青側の空間配置や資源条件がこの型の結果を押し上げたり押し下げたりしている可能性がある")
+                    if inter:
+                        lines.append("この型を単独で評価するのは危険です。" + "。".join(inter) + "。つまり、この型の増減は、哲学型そのものだけでなく、別の遺伝子やチーム環境と組み合わさって生じている可能性があります。")
+                    else:
+                        lines.append("この型では、タカ/ハト、捕食傾向、赤青チームの強い偏りはまだ見えにくいです。その場合、資源収支、空腹率、出生死亡差の方が説明の中心になります。")
+                    st.markdown("\n\n".join(lines))
+
+        # team interpretation, not circular
+        red_now, blue_now = val("赤個体数（体）", np.nan), val("青個体数（体）", np.nan)
+        if not np.isnan(red_now) and not np.isnan(blue_now):
+            side = "赤チーム" if red_now > blue_now else "青チーム" if blue_now > red_now else "赤青ほぼ同数"
+            team_lines = [f"最新世代では **{side}** が数の上では優勢です。ただし、数が多いことは原因ではありません。ここで見るべきなのは、そのチームの個体がなぜ生き残り、なぜ子を残せたかです。"]
+            red_hawk, blue_hawk = val("赤タカ比率（0-1）", np.nan), val("青タカ比率（0-1）", np.nan)
+            if not np.isnan(red_hawk) and not np.isnan(blue_hawk):
+                if abs(red_hawk-blue_hawk) > 0.08:
+                    high = "赤" if red_hawk > blue_hawk else "青"
+                    team_lines.append(f"タカ比率は赤 **{fmt(red_hawk)}**、青 **{fmt(blue_hawk)}** です。{high}側は争奪に出やすい構成です。争奪で利益が出る環境ならこの偏りは資源獲得に働きますが、戦闘コストが大きい環境なら逆に死亡や消耗を増やします。")
+                else:
+                    team_lines.append("赤青のタカ比率に大きな差はありません。チーム差の主因はタカ/ハトだけではなく、資源配置、哲学型の偏り、密度、交尾条件にある可能性が高いです。")
+            # philosophy bias by team from latest columns
+            biases=[]
+            for lab in labels:
+                r = val(f"{lab} 赤比率（0-1）", np.nan); b = val(f"{lab} 青比率（0-1）", np.nan)
+                if not np.isnan(r) and not np.isnan(b) and abs(r-b) > 0.12:
+                    biases.append(f"{lab}は{'赤' if r>b else '青'}側に偏る")
+            if biases:
+                team_lines.append("哲学型にも偏りがあります。" + "、".join(biases[:4]) + "。そのため、チームの優位は色そのものではなく、そこに集まった行動型の影響を受けている可能性があります。")
+            team_lines.append("チーム差を確かめるには、赤青ごとの平均所持資源、空腹率、死亡、出生、タカ比率、哲学型構成を同時に見る必要があります。もし優位チームが資源でも死亡回避でも出生でも勝っているなら、そのチームは環境をうまく使っています。逆に数だけ多く、資源や出生で勝っていないなら、たまたま初期配置や他チームの減少で多く見えているだけかもしれません。")
+            section("赤チームと青チームの差をどう読むか", "\n\n".join(team_lines))
+
+        # interesting biology angle
+        section(
+            "この結果が生物として面白いところ",
+            "このモデルでは、強い遺伝子がいつも強いわけではありません。資源が固まっている世界では、資源の場所へ行ける遺伝子が強くなります。密度が高い世界では、交尾したくても空きマスや近親回避で止まることがあります。争奪が利益になる世界ではタカ的な性質が資源を生みますが、争奪コストが高い世界では同じ性質が負担になります。捕食も同じで、成功すれば資源獲得、失敗すれば危険接触です。\n\n哲学型も、思想名そのものが勝つのではありません。ある型が勝つとすれば、それはその型の行動評価が、その時の資源配置、密度、危険、相手との出会い方に合っていたからです。つまり、遺伝子の価値は環境との関係の中で生まれます。この点が、ネオライフゲームを単なる勝敗ゲームではなく、進化を読むモデルにしている部分です。"
+        )
+
+
     # -------------------------
     # グラフ表示（単位ごとに分けて“読みやすく”）
     # -------------------------
@@ -7859,8 +8125,14 @@ elif view == "統計":
         else:
             st.info("資源と個体数の増減方向が大きく矛盾していません。次は遺伝子別Wを見ます。")
 
-    show_public_causal_report_v26()
-    show_v20_comparison_mode()
+    show_public_narrative_report_v28()
+
+    with st.expander("詳細分析・比較実験を開く", expanded=False):
+        st.caption("通常は上の分析レポートだけで読めます。さらに検算したい場合だけ開いてください。")
+        if st.checkbox("詳細分析レポートを生成する", value=False):
+            _safe_render_section("詳細分析レポート", show_public_causal_report_v26)
+        if st.checkbox("比較実験モードを表示する", value=False):
+            _safe_render_section("比較実験モード", show_v20_comparison_mode)
 
     if st.checkbox("補助分析ログを表示する", value=False, help="開発・検算用です。外部説明では上の分析レポートを中心に見せてください。"):
         show_auto_interpretation()
