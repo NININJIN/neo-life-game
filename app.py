@@ -15,7 +15,7 @@ st.set_page_config(page_title="ネオライフゲーム", layout="wide")
 st.title("ネオライフゲーム")
 st.caption("個体が資源を集め、移動し、交尾し、争奪や捕食の圧を受けながら、どの遺伝子がどの条件で残るのかを観察する進化シミュレーションです。")
 
-st.info("公開用の安定版です。重い詳細分析よりも、まず操作と表示が止まらないことを優先しています。統計欄では、遺伝子頻度・資源・出生・死亡・行動イベントを見ながら、どの条件が個体群を動かしているかを確認できます。")
+st.info("このシミュレーションでは、個体が資源を集め、移動し、交尾し、争奪や捕食の圧を受けながら、どの遺伝子がどの環境で残るのかを観察できます。まずはリセットしてから、1世代ずつ進めるか、自動実行で変化を見てください。")
 
 st.markdown("""
 <style>
@@ -479,11 +479,11 @@ with top:
         unsafe_allow_html=True,
     )
     a, b, c, d, e, f, g = st.columns([1.0, 1.05, 1.0, 1.0, 0.9, 0.9, 2.0])
-    reset_btn = a.button("↻ リセット", use_container_width=True)
-    step_gen_btn = b.button("▶ 1世代", use_container_width=True)
-    step_10_btn = c.button("▶▶ 10世代", use_container_width=True)
-    step_50_btn = d.button("▶▶▶ 50世代", use_container_width=True)
-    step_btn = e.button("1フェーズ", use_container_width=True)
+    reset_btn = a.button("↻ リセット", width="stretch")
+    step_gen_btn = b.button("▶ 1世代", width="stretch")
+    step_10_btn = c.button("▶▶ 10世代", width="stretch")
+    step_50_btn = d.button("▶▶▶ 50世代", width="stretch")
+    step_btn = e.button("1フェーズ", width="stretch")
     running = f.toggle("自動", value=False)
     speed_ms = g.slider("更新間隔（ms）", 0, 2000, 80, 10)  # 0なら最速
 
@@ -3119,7 +3119,7 @@ with right:
 # 各ビュー表示（元の tabs 内容をそのまま移植）
 # -------------------------
 if view == "環境":
-    st.image(upscale_with_grid(base), use_container_width=True)
+    st.image(upscale_with_grid(base), width="stretch")
 
 elif view == "①発生":
     big = upscale_with_grid(base)
@@ -3144,13 +3144,13 @@ elif view == "①発生":
             cy = int(y) * scale + scale // 2
             dr.point((cx, cy), fill=(0, 220, 0))
 
-    st.image(np.array(pil), use_container_width=True)
+    st.image(np.array(pil), width="stretch")
 
 elif view == "②認識":
     img = base
     if show_perception:
         img = overlay_perception(img)
-    st.image(upscale_with_grid(img), use_container_width=True)
+    st.image(upscale_with_grid(img), width="stretch")
 
 elif view == "③思考":
     big = upscale_with_grid(base)
@@ -3162,9 +3162,9 @@ elif view == "③思考":
             w.get("intent_x", xs),
             w.get("intent_act", np.zeros(n_agents, dtype=np.int8))
         )
-        st.image(big2, use_container_width=True)
+        st.image(big2, width="stretch")
     else:
-        st.image(big, use_container_width=True)
+        st.image(big, width="stretch")
 
 elif view == "④行動":
     big = upscale_with_grid(base)
@@ -3172,9 +3172,9 @@ elif view == "④行動":
     act = w.get("last_act", np.zeros(n_agents, dtype=np.int8))
     if len(prev_x) == n_agents and n_agents > 0:
         big2 = draw_thinking(big, prev_y, prev_x, ys, xs, act)
-        st.image(big2, use_container_width=True)
+        st.image(big2, width="stretch")
     else:
-        st.image(big, use_container_width=True)
+        st.image(big, width="stretch")
 
 elif view == "⑤生死":
     big = upscale_with_grid(base)
@@ -3189,7 +3189,7 @@ elif view == "⑤生死":
         dr.line((cx - s, cy - s, cx + s, cy + s), fill=(255, 0, 0), width=2)
         dr.line((cx - s, cy + s, cx + s, cy - s), fill=(255, 0, 0), width=2)
 
-    st.image(np.array(pil), use_container_width=True)
+    st.image(np.array(pil), width="stretch")
 
 elif view == "統計":
     st.subheader("統計（世代推移）")
@@ -3225,7 +3225,7 @@ elif view == "統計":
         data=df.to_csv(index=False).encode("utf-8-sig"),
         file_name="neo_life_stats.csv",
         mime="text/csv",
-        use_container_width=True
+        width="stretch"
     )
 
     # ---- 最新世代のサマリー ----
@@ -3263,7 +3263,7 @@ elif view == "統計":
                 .properties(title=title, height=210)
                 .interactive()
             )
-            st.altair_chart(ch, use_container_width=True)
+            st.altair_chart(ch, width="stretch")
         else:
             st.caption(f"横軸：世代（回） / 縦軸：{y_title}")
             st.line_chart(dff.set_index(xcol)[cols])
@@ -3286,7 +3286,7 @@ elif view == "統計":
                 .properties(title=title, height=210)
                 .interactive()
             )
-            st.altair_chart(ch, use_container_width=True)
+            st.altair_chart(ch, width="stretch")
         else:
             st.caption(f"横軸：世代（回） / 縦軸：{y_title}")
             st.line_chart(dff.set_index(xcol)[[col]])
@@ -3317,7 +3317,7 @@ elif view == "統計":
                 )
                 .properties(title=title, height=200)
             )
-            st.altair_chart(ch, use_container_width=True)
+            st.altair_chart(ch, width="stretch")
         else:
             # fallback: ヒストが弱いので、要約だけ出す
             st.caption(f"{title}（{x_title}）")
@@ -3389,7 +3389,7 @@ elif view == "統計":
                 .properties(title=title, height=260)
                 .interactive()
             )
-            st.altair_chart(ch, use_container_width=True)
+            st.altair_chart(ch, width="stretch")
         else:
             st.area_chart(dff.set_index(xcol)[cols])
 
@@ -3415,7 +3415,7 @@ elif view == "統計":
             )
             bars = base.mark_bar()
             text = base.mark_text(align="left", dx=4).encode(text=alt.Text("値:Q", format=".3f"))
-            st.altair_chart((bars + text).properties(title=title, height=max(180, 28 * len(cols))), use_container_width=True)
+            st.altair_chart((bars + text).properties(title=title, height=max(180, 28 * len(cols))), width="stretch")
         else:
             st.bar_chart(data.set_index("指標"))
 
@@ -3457,7 +3457,7 @@ elif view == "統計":
                 {"指標": "Gini", "意味": "資源の偏り", "見方": "高いほど一部個体だけが繁殖できる。自然淘汰が強くなるが絶滅リスクも上がる"},
                 {"指標": "Simpson多様度", "意味": "遺伝子型の多様さ", "見方": "低下は固定化かボトルネック。高すぎる場合は淘汰圧が弱い可能性"},
             ]
-            st.dataframe(pd.DataFrame(guide_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(guide_rows), width="stretch", hide_index=True)
 
     def show_philo_summary_table():
         rows = []
@@ -3486,7 +3486,7 @@ elif view == "統計":
                     "実出生": "{:.0f}",
                     "死亡": "{:.0f}",
                 }),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -3861,7 +3861,7 @@ elif view == "統計":
 
             st.markdown("#### 5. 原因候補マトリクス")
             st.caption("この表は、観察された数値から『どの仕組みが原因候補か』へ橋渡しするためのものです。")
-            st.dataframe(pd.DataFrame(cause_rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(cause_rows), width="stretch", hide_index=True)
 
             if len(philo_tab) > 0:
                 st.markdown("#### 6. 哲学型ごとの『なぜ』")
@@ -3883,7 +3883,7 @@ elif view == "統計":
                         "交尾成功参加": "{:.0f}",
                         "捕食試行": "{:.0f}",
                     }),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
             st.caption("この読み取りは、数値から原因候補を出すための補助です。断定ではなく、次にモデル修正・seed比較・ON/OFF比較で検証する仮説として扱います。")
@@ -4138,7 +4138,7 @@ elif view == "統計":
                     "平均Gini": "{:.3f}",
                     "哲学多様度": "{:.3f}",
                     "最多型平均比率": "{:.3f}",
-                }), use_container_width=True, hide_index=True)
+                }), width="stretch", hide_index=True)
 
 
     def show_philosophy_gene_flow_summary():
@@ -4277,7 +4277,7 @@ elif view == "統計":
                 "最新交尾成功参加": "{:.0f}",
                 "最新捕食試行": "{:.0f}",
                 "支配世代数": "{:.0f}",
-            }), use_container_width=True, hide_index=True)
+            }), width="stretch", hide_index=True)
 
             best_ratio = tab.sort_values("最新比率", ascending=False).iloc[0]
             best_delta = tab.sort_values("比率変化", ascending=False).iloc[0]
@@ -4389,7 +4389,7 @@ elif view == "統計":
             })
         parent_df = pd.DataFrame(parent_rows).sort_values("親繁殖効率/個体世代", ascending=False)
         st.markdown("#### A. 親として残したコピー / 子として増えたコピー")
-        st.dataframe(parent_df, use_container_width=True, hide_index=True, column_config={
+        st.dataframe(parent_df, width="stretch", hide_index=True, column_config={
             "初期比率": st.column_config.NumberColumn(format="%.3f"),
             "最新比率": st.column_config.NumberColumn(format="%.3f"),
             "比率変化": st.column_config.NumberColumn(format="%+.3f"),
@@ -4424,13 +4424,13 @@ elif view == "統計":
                     mat_pair.loc[clab, plab] = v
         st.markdown("#### B. 親→子フロー行列")
         st.caption("行=親として参加した型、列=実際に生まれた子の型。混合ペアでは、親2体ぶんが行に加算されます。")
-        st.dataframe(mat_parent_child.style.format("{:.0f}"), use_container_width=True)
+        st.dataframe(mat_parent_child.style.format("{:.0f}"), width="stretch")
         st.markdown("#### C. 親組み合わせ行列")
         st.caption("どの型同士のペアが実出生につながったかです。対角線は同型同士、対角線以外は混合ペアです。")
-        st.dataframe(mat_pair.style.format("{:.0f}"), use_container_width=True)
+        st.dataframe(mat_pair.style.format("{:.0f}"), width="stretch")
         st.markdown("#### D. コピー元→子フロー行列")
         st.caption("子が実際にどの型のコピーとして生まれたかです。現段階では突然変異を入れていないので基本的に対角線に出ます。将来、突然変異や文化的変換を入れたときに重要になります。")
-        st.dataframe(mat_source_child.style.format("{:.0f}"), use_container_width=True)
+        st.dataframe(mat_source_child.style.format("{:.0f}"), width="stretch")
 
         mixed_total = 0.0
         same_total = 0.0
@@ -4471,7 +4471,7 @@ elif view == "統計":
             action_rows.append(row)
         action_df = pd.DataFrame(action_rows)
         st.markdown("#### E. 行動選択から見る『なぜ』")
-        st.dataframe(action_df, use_container_width=True, hide_index=True, column_config={
+        st.dataframe(action_df, width="stretch", hide_index=True, column_config={
             col: st.column_config.NumberColumn(format="%.3f") for col in action_df.columns if col.startswith("平均行動率:")
         })
 
@@ -4513,7 +4513,7 @@ elif view == "統計":
             })
         team_df = pd.DataFrame(team_rows).sort_values("赤-青差", ascending=False)
         st.markdown("#### F. 赤チーム・青チーム内の哲学型偏り")
-        st.dataframe(team_df, use_container_width=True, hide_index=True, column_config={
+        st.dataframe(team_df, width="stretch", hide_index=True, column_config={
             "赤内最新比率": st.column_config.NumberColumn(format="%.3f"),
             "青内最新比率": st.column_config.NumberColumn(format="%.3f"),
             "赤-青差": st.column_config.NumberColumn(format="%+.3f"),
@@ -4547,7 +4547,7 @@ elif view == "統計":
         if corr_rows:
             corr_df = pd.DataFrame(corr_rows).sort_values("相関", key=lambda s: s.abs(), ascending=False).head(30)
             st.markdown("#### G. 頻度変化とイベントの相関：因果候補ランキング")
-            st.dataframe(corr_df, use_container_width=True, hide_index=True, column_config={
+            st.dataframe(corr_df, width="stretch", hide_index=True, column_config={
                 "相関": st.column_config.NumberColumn(format="%+.3f"),
             })
             top_corr = corr_df.iloc[0]
@@ -4697,7 +4697,7 @@ elif view == "統計":
         if gene_rows:
             gene_df = pd.DataFrame(gene_rows).sort_values("優勢スコア", ascending=False)
             st.markdown("#### 遺伝子型の優勢・劣勢")
-            st.dataframe(gene_df, use_container_width=True, hide_index=True, column_config={
+            st.dataframe(gene_df, width="stretch", hide_index=True, column_config={
                 "初期比率": st.column_config.NumberColumn(format="%.3f"),
                 "最新比率": st.column_config.NumberColumn(format="%.3f"),
                 "比率変化": st.column_config.NumberColumn(format="%+.3f"),
@@ -4729,7 +4729,7 @@ elif view == "統計":
         if contest_rows:
             cdf=pd.DataFrame(contest_rows)
             st.markdown("#### 争奪遺伝子：タカ/ハトの淘汰圧")
-            st.dataframe(cdf, use_container_width=True, hide_index=True)
+            st.dataframe(cdf, width="stretch", hide_index=True)
             if len(cdf)>=2:
                 top=cdf.sort_values(["数変化","平均W"], ascending=False).iloc[0]
                 explain_box("タカ/ハトの読み取り", f"このランでは **{top['争奪遺伝子']}** が相対的に優勢に見えます。なぜなら、数変化と平均Wが争奪遺伝子のコピー維持を直接示すからです。タカが伸びるなら衝突で得る利得がコストを上回る環境、ハトが伸びるなら戦闘コスト・過密・資源格差が攻撃性を罰している環境が疑えます。")
@@ -4781,7 +4781,7 @@ elif view == "統計":
             pressures.append(("弱い複合選択圧", "単独で突出した圧は見えにくく、資源・交尾・密度・遺伝的浮動が複合している可能性が高いため。"))
         pressure_df=pd.DataFrame([{"推定される淘汰圧":a,"なぜそう読めるか":b} for a,b in pressures])
         st.markdown("#### このランで働いていそうな淘汰圧")
-        st.dataframe(pressure_df, use_container_width=True, hide_index=True)
+        st.dataframe(pressure_df, width="stretch", hide_index=True)
 
 
 
@@ -4824,7 +4824,7 @@ elif view == "統計":
                     default=["哲学遺伝子OFF", "通常100%（哲学個体なし）", "捕食OFF"],
                     key="v20_selected_scenarios",
                 )
-            run_compare = st.button("同じseedで比較実験を実行", use_container_width=True, key="v20_run_compare")
+            run_compare = st.button("同じseedで比較実験を実行", width="stretch", key="v20_run_compare")
             st.caption("軽量化のため初期値は40世代×1反復・条件3つにしています。必要なときだけ世代数・条件・反復数を増やしてください。")
 
             if run_compare:
@@ -4883,7 +4883,7 @@ elif view == "統計":
                 fmt_cols[c] = st.column_config.NumberColumn(format="%+.2f")
             else:
                 fmt_cols[c] = st.column_config.NumberColumn(format="%.1f")
-        st.dataframe(agg, use_container_width=True, hide_index=True, column_config=fmt_cols)
+        st.dataframe(agg, width="stretch", hide_index=True, column_config=fmt_cols)
 
         # 視覚化：単位が混ざらないように、個体数差とW差を分ける。
         if not baseline.empty:
@@ -4909,7 +4909,7 @@ elif view == "統計":
             ph_agg = ph_agg.sort_values("_order").drop(columns=["_order"])
             st.markdown("#### v20-D. 各条件で、どの行動型が伸びたか")
             st.caption("通常個体・各哲学型の比率変化です。基準と条件変更を比べると、どの遺伝子がどの環境で伸びやすいかが見えます。")
-            st.dataframe(ph_agg, use_container_width=True, hide_index=True, column_config={c: st.column_config.NumberColumn(format="%+.3f") for c in philo_delta_cols})
+            st.dataframe(ph_agg, width="stretch", hide_index=True, column_config={c: st.column_config.NumberColumn(format="%+.3f") for c in philo_delta_cols})
 
         # テキスト解釈：なぜその差が出たと読めるか。
         st.markdown("#### v20-E. 比較から読める因果候補")
@@ -4918,7 +4918,7 @@ elif view == "統計":
             st.markdown(f"- {line}")
 
         with st.expander("v20 生データ：各seed反復ごとの結果", expanded=False):
-            st.dataframe(raw_df, use_container_width=True, hide_index=True)
+            st.dataframe(raw_df, width="stretch", hide_index=True)
 
     def _run_v20_comparison(specs, generations: int, repeats: int):
         """現在の世界を退避し、同じseedで複数条件を走らせる。"""
@@ -5454,4 +5454,4 @@ elif view == "統計":
         plot_hist("認識半径の分布", vis_now, "認識半径（マス）")
 
     st.markdown("### 7) 表（直近の統計）")
-    st.dataframe(dff, use_container_width=True)
+    st.dataframe(dff, width="stretch")
