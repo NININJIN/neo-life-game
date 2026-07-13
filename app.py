@@ -101,52 +101,52 @@ div[data-testid="stImage"]{
 
 PHASES = ["① 発生", "② 認識", "③ 思考", "④ 行動", "⑤ 生死"]
 
-# 哲学的個体＝行動方針を持つビークル、として自然淘汰にかけるための遺伝子。
-# ここでいう「哲学」は思想家本人の内面や倫理を完全再現するものではなく、
-# 自然淘汰にさらすための「行動評価関数」への操作的変換である。
-# 0 ヒューム型：経験・局所観察・目の前の証拠を重視する。
-# 1 ストア型：外部条件に過剰反応せず、危険下でも自己保存を安定させる。
-# 2 デカルト型：疑わしいものを避け、明確な利得・安全性・自己保存を重視する。
-# 3 カント型：短期利得だけでなく、規則性・非搾取・持続可能性を重視する。
-NORMAL_PHILO_VALUE = 4
-PHILO_TYPE_COUNT = 5
-PHILOSOPHY_VALUES = (0, 1, 2, 3)
+# 哲学型判断遺伝子
+# ここで扱う「デカルト型・ヒューム型・カント型」は、実在する遺伝子ではない。
+# 哲学者の思想全体を遺伝子化するのでもない。
+# それぞれの哲学に特徴的な「限られた情報からどう判断するか」を抽出し、
+# 親から子へ継承される仮想的な判断形質としてモデル化する。
+# 0 デカルト型：十分に確実な差が出るまで判断を保留しやすい。
+# 1 ヒューム型：局所観察と過去に似た状況での成功を重く見る。
+# 2 カント型：先天的な規則で情報を整理し、経験と合わせて判断する。
+# 3 通常個体：哲学型判断遺伝子を持たず、基本判断アルゴリズムで動く対照群。
+NORMAL_PHILO_VALUE = 3
+PHILO_TYPE_COUNT = 4
+PHILOSOPHY_VALUES = (0, 1, 2)
 
 PHILO_LABELS = {
-    0: "ヒューム型",
-    1: "ストア型",
-    2: "デカルト型",
-    3: "カント型",
-    4: "通常個体",
+    0: "デカルト型",
+    1: "ヒューム型",
+    2: "カント型",
+    3: "通常個体",
 }
 
 PHILO_THEORY = {
-    0: "ヒューム型（Hume）：経験・観察・局所的な証拠を重く見る。資源や実際に見えている情報への反応が強い。",
-    1: "ストア型（Epictetus/Marcus Aurelius）：外部環境の変動に振り回されず、危険回避・自己制御・生存安定を重視する。",
-    2: "デカルト型（Descartes）：方法的懐疑の操作的モデル。曖昧な期待値より、明確な利得・安全性・自己保存を重視する。",
-    3: "カント型（Kant）：規則性・普遍化可能性の操作的モデル。短期的な搾取より、非搾取・安定繁殖・持続可能な行動を重視する。",
-    4: "通常個体：哲学的な補正を持たない中立個体。哲学型が有利なのか、単に中立行動と同等なのかを比較する対照群。",
+    0: "デカルト型：判断の確実性を重視する。行動候補の差が小さいときは、急いで動くより待機・回避を選びやすい。誤認は減るが、資源や交尾の機会を逃すことがある。",
+    1: "ヒューム型：経験と局所観察を重視する。見えている資源、足元の環境、過去に成功しやすかった状況へ反応しやすい。環境が安定していれば強いが、急変には遅れることがある。",
+    2: "カント型：生得的な判断規則と経験を組み合わせる。危険、近さ、資源の偏り、持続可能性を一定の枠組みで整理する。未経験でも動けるが、枠組みが環境に合わないと誤る。",
+    3: "通常個体：哲学型判断遺伝子を持たない対照群。資源、危険、移動コストなどを基本アルゴリズムで直接評価して行動する。",
 }
+
 
 def philo_active_values():
     """サイドバーでONになっている哲学型の値を返す。全OFFならヒューム型だけを使う。"""
     flags = {
-        0: bool(globals().get('philo_enable_hume', True)),
-        1: bool(globals().get('philo_enable_stoic', True)),
-        2: bool(globals().get('philo_enable_descartes', True)),
-        3: bool(globals().get('philo_enable_kant', True)),
+        0: bool(globals().get('philo_enable_descartes', True)),
+        1: bool(globals().get('philo_enable_hume', True)),
+        2: bool(globals().get('philo_enable_kant', True)),
     }
     vals = [k for k, v in flags.items() if v]
-    return vals if vals else [0]
+    return vals if vals else [1]
+
 
 def philo_choice_values_probs():
     """初期生成・古い世界の補修用。ONの型だけから、重みに従って選ぶ。"""
     vals = philo_active_values()
     weight_map = {
-        0: int(globals().get('philo_weight_hume', 25)),
-        1: int(globals().get('philo_weight_stoic', 25)),
-        2: int(globals().get('philo_weight_descartes', 25)),
-        3: int(globals().get('philo_weight_kant', 25)),
+        0: int(globals().get('philo_weight_descartes', 25)),
+        1: int(globals().get('philo_weight_hume', 25)),
+        2: int(globals().get('philo_weight_kant', 25)),
     }
     weights = np.array([max(0, weight_map.get(v, 0)) for v in vals], dtype=np.float64)
     if float(weights.sum()) <= 0:
@@ -167,18 +167,38 @@ def philo_index(value):
 
 
 def make_initial_philo_array(rng, n):
-    """通常個体と哲学個体を、初期割合に従って厳密に生成する。"""
+    """通常個体と哲学個体を初期割合に従って、できるだけ厳密に生成する。"""
     n = int(n)
     if n <= 0:
         return np.array([], dtype=np.int8)
+
     vals, probs = philo_choice_values_probs()
-    arr = rng.choice(vals, size=n, replace=True, p=probs).astype(np.int8)
-    normal_pct = float(globals().get('initial_normal_pct', 80))
+    normal_pct = float(globals().get('initial_normal_pct', 25))
     normal_n = int(round(n * np.clip(normal_pct, 0.0, 100.0) / 100.0))
     normal_n = max(0, min(n, normal_n))
+    philo_n = n - normal_n
+
+    arr_parts = []
     if normal_n > 0:
-        normal_idx = rng.choice(n, size=normal_n, replace=False)
-        arr[normal_idx] = int(NORMAL_PHILO_VALUE)
+        arr_parts.append(np.full(normal_n, int(NORMAL_PHILO_VALUE), dtype=np.int8))
+
+    if philo_n > 0:
+        raw = probs * philo_n
+        counts = np.floor(raw).astype(int)
+        rest = int(philo_n - counts.sum())
+        if rest > 0:
+            order = np.argsort(-(raw - counts))
+            for k in order[:rest]:
+                counts[int(k)] += 1
+        philo_vals = []
+        for v, c in zip(vals, counts):
+            if int(c) > 0:
+                philo_vals.append(np.full(int(c), int(v), dtype=np.int8))
+        if philo_vals:
+            arr_parts.append(np.concatenate(philo_vals))
+
+    arr = np.concatenate(arr_parts) if arr_parts else np.array([], dtype=np.int8)
+    rng.shuffle(arr)
     return arr.astype(np.int8)
 
 PHILO_STAT_KEYS = [
@@ -187,12 +207,9 @@ PHILO_STAT_KEYS = [
     "stat_philo_mate_attempt", "stat_philo_mate_success",
     "stat_philo_predation_attempt", "stat_philo_predation_success", "stat_philo_predation_fail",
     "stat_philo_predation_gain", "stat_philo_battle_gain", "stat_philo_battle_cost",
-    # v19：親としてどれだけ子の発生に参加したか。子として増えた数とは分けて見る。
     "stat_philo_parent_offspring_reserved", "stat_philo_parent_offspring_real",
 ]
 
-# ③思考で選ばれた行動。
-# 「なぜその遺伝子が増えたか」を見るには、出生・死亡だけでなく行動選択の偏りが必要。
 PHILO_ACTION_LABELS = {
     0: "待機",
     1: "移動",
@@ -203,8 +220,6 @@ PHILO_ACTION_LABELS = {
     6: "捕食",
 }
 
-# v19：親子の遺伝子フロー用。
-# pair は親組み合わせ、parent_to_child は親の型がどの子型を生んだか、source_to_child は実際に子へコピーされた型。
 PHILO_MATRIX_STAT_KEYS = [
     "stat_philo_pair_reserved",
     "stat_philo_pair_real",
@@ -383,28 +398,26 @@ with st.sidebar:
     explore_p = explore_pct / 100.0
 
     st.divider()
-    st.subheader("哲学遺伝子（行動評価関数）")
-    enable_philo_gene = st.checkbox("哲学遺伝子を行動に反映する", value=True)
-    philo_effect = st.slider("哲学遺伝子の影響強度", 0.0, 2.0, 1.0, 0.05)
-    initial_normal_pct = st.slider("初期：通常個体割合（%）", 0, 100, 80, 1)
-    st.caption("通常個体も遺伝子フロー表・比較実験に入ります。80%なら、哲学型は20%ぶんの中で初期重みに従って発生します。")
-    st.caption("通常個体は哲学的な行動補正を持たない中立対照群です。初期値は80%です。")
+    st.subheader("哲学型判断遺伝子")
+    enable_philo_gene = st.checkbox("哲学型判断遺伝子を行動に反映する", value=True)
+    philo_effect = st.slider("判断遺伝子の影響強度", 0.0, 2.0, 1.0, 0.05)
+    initial_normal_pct = st.slider("初期：通常個体割合（%）", 0, 100, 25, 1)
+    st.caption("初期設定は、通常個体・デカルト型・ヒューム型・カント型を各25％にします。通常個体は哲学型判断遺伝子を持たない対照群です。")
+    st.caption("ここでいう遺伝子は実在の遺伝子ではなく、判断方法を親から子へ継承される仮想形質として扱うためのモデル上の名前です。")
 
-    with st.expander("哲学型のON/OFF・初期重み", expanded=True):
+    with st.expander("三つの哲学型のON/OFF・初期重み", expanded=True):
         st.caption("OFFにした型は初期個体にも、古い個体群の補修にも使われません。全OFFなら安全のためヒューム型だけにします。")
-        philo_enable_hume = st.checkbox("ヒューム型を使う", value=True)
-        philo_weight_hume = st.slider("初期重み：ヒューム型", 0, 100, 25, 1)
-        philo_enable_stoic = st.checkbox("ストア型を使う", value=True)
-        philo_weight_stoic = st.slider("初期重み：ストア型", 0, 100, 25, 1)
         philo_enable_descartes = st.checkbox("デカルト型を使う", value=True)
         philo_weight_descartes = st.slider("初期重み：デカルト型", 0, 100, 25, 1)
+        philo_enable_hume = st.checkbox("ヒューム型を使う", value=True)
+        philo_weight_hume = st.slider("初期重み：ヒューム型", 0, 100, 25, 1)
         philo_enable_kant = st.checkbox("カント型を使う", value=True)
         philo_weight_kant = st.slider("初期重み：カント型", 0, 100, 25, 1)
 
-    with st.expander("4型の操作的定義", expanded=False):
+    with st.expander("操作的定義", expanded=False):
         for _k, _v in PHILO_THEORY.items():
             st.markdown(f"- **{PHILO_LABELS[_k]}**：{_v}")
-        st.caption("思想家本人の完全再現ではなく、自然淘汰にさらすために、行動評価関数へ変換したモデルです。")
+        st.caption("思想家本人の完全再現ではなく、哲学に特徴的な判断原理だけを取り出し、行動評価関数へ変換したモデルです。")
 
     st.divider()
     st.subheader("可視化")
@@ -767,7 +780,7 @@ def _gene_diversity_from_counts(counts):
 
 
 def philo_action_modifiers(philo_value):
-    """哲学的行動遺伝子が、同じ環境入力をどう評価するかを変える。
+    """哲学型判断遺伝子が、同じ環境入力をどう評価するかを変える。
 
     戻り値: resource, danger, battle, mate, predation, escape
     中立値は (1, 1, 0, 0, 0, 0)。
@@ -783,17 +796,17 @@ def philo_action_modifiers(philo_value):
         return neutral
 
     if p == 0:
-        # ヒューム型：経験・局所観察を重視。見えている資源には敏感だが、抽象的リスクで過剰に行動を止めない。
-        raw = (1.35, 0.95, -1.0, 0.0, -1.0, -0.2)
+        # デカルト型：不確実な行動を抑え、危険・失敗コストに強く反応する。
+        # 正確さは増えるが、採取・交尾・捕食の機会を逃しやすい。
+        raw = (0.95, 1.45, -3.0, -0.5, -3.0, 2.5)
     elif p == 1:
-        # ストア型：外部要因への過剰反応を抑え、生存安定と危険回避を重視する。
-        raw = (0.95, 1.45, -4.0, -0.5, -4.0, 3.5)
+        # ヒューム型：見えている資源と近傍経験を重く評価する。
+        # 安定環境では素早く資源へ向かえるが、環境急変では過去の成功に引きずられやすい。
+        raw = (1.35, 0.95, -1.0, 0.0, -1.0, -0.2)
     elif p == 2:
-        # デカルト型：疑わしい選択を抑え、明確な利得・安全性・自己保存を重視する。
-        raw = (1.05, 1.30, -2.0, -0.5, -2.5, 2.0)
-    elif p == 3:
-        # カント型：短期的搾取より、規則性・非搾取・持続可能な繁殖を重視する。
-        raw = (1.00, 1.15, -5.0, 3.0, -5.0, 1.0)
+        # カント型：生得的な整理規則を使い、危険・繁殖・持続可能性を同時に見る。
+        # 単純な中間ではなく、行動を一定の枠組みで整理する型として扱う。
+        raw = (1.05, 1.20, -4.5, 2.5, -4.0, 1.2)
     else:
         return neutral
 
@@ -996,8 +1009,8 @@ def signature():
         float(local_resource_bonus), float(density_resource_penalty),
         float(kin_avoid_strength), float(kin_avoid_threshold),
         bool(enable_philo_gene), float(philo_effect), int(initial_normal_pct),
-        bool(philo_enable_hume), bool(philo_enable_stoic), bool(philo_enable_descartes), bool(philo_enable_kant),
-        int(philo_weight_hume), int(philo_weight_stoic), int(philo_weight_descartes), int(philo_weight_kant),
+        bool(philo_enable_descartes), bool(philo_enable_hume), bool(philo_enable_kant),
+        int(philo_weight_descartes), int(philo_weight_hume), int(philo_weight_kant),
         bool(enable_predation), int(predation_gene_init_pct),
         int(predation_hunger_threshold), float(predation_gain_rate), int(predation_fail_cost),
     )
@@ -1507,6 +1520,13 @@ def phase3_thinking():
                 if best_prey is not None and best_pred_u > best_u:
                     best_u = best_pred_u
                     best_y, best_x, best_a = int(best_prey[0]), int(best_prey[1]), 6
+
+        # デカルト型は、行動候補の利得が小さく、確信が弱いときに判断を保留しやすい。
+        # これは方法的懐疑の完全再現ではなく、「疑わしい情報をすぐ行動根拠にしない」性質だけを抽出したもの。
+        if enable_philo_gene and philo_index(my_philo) == 0 and best_a not in (0, 4):
+            certainty_threshold = 1.8 + 0.6 * float(hunger01)
+            if float(best_u) < certainty_threshold:
+                best_y, best_x, best_a = y0, x0, 0
 
         # 探索
         if do_explore:
@@ -2371,18 +2391,15 @@ def log_generation():
         "ハト 適応度W（コピー増殖率）": float(W_contest[1]),
         "非捕食 適応度W（コピー増殖率）": float(W_pred[0]),
         "捕食 適応度W（コピー増殖率）": float(W_pred[1]),
-        "ヒューム型 数（体）": int(philo_counts[0]),
-        "ストア型 数（体）": int(philo_counts[1]),
-        "デカルト型 数（体）": int(philo_counts[2]),
-        "カント型 数（体）": int(philo_counts[3]),
-        "ヒューム型 比率（0-1）": float(philo_counts[0]) / max(n, 1),
-        "ストア型 比率（0-1）": float(philo_counts[1]) / max(n, 1),
-        "デカルト型 比率（0-1）": float(philo_counts[2]) / max(n, 1),
-        "カント型 比率（0-1）": float(philo_counts[3]) / max(n, 1),
-        "ヒューム型 W": float(W_philo[0]),
-        "ストア型 W": float(W_philo[1]),
-        "デカルト型 W": float(W_philo[2]),
-        "カント型 W": float(W_philo[3]),
+        "デカルト型 数（体）": int(philo_counts[0]),
+        "ヒューム型 数（体）": int(philo_counts[1]),
+        "カント型 数（体）": int(philo_counts[2]),
+        "デカルト型 比率（0-1）": float(philo_counts[0]) / max(n, 1),
+        "ヒューム型 比率（0-1）": float(philo_counts[1]) / max(n, 1),
+        "カント型 比率（0-1）": float(philo_counts[2]) / max(n, 1),
+        "デカルト型 W": float(W_philo[0]),
+        "ヒューム型 W": float(W_philo[1]),
+        "カント型 W": float(W_philo[2]),
         "争奪遺伝子多様度（Simpson）": _gene_diversity_from_counts(contest_counts),
         "捕食遺伝子多様度（Simpson）": _gene_diversity_from_counts(pred_counts),
         "通常個体数（体）": normal_count,
