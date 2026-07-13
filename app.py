@@ -208,6 +208,9 @@ PHILO_STAT_KEYS = [
     "stat_philo_predation_attempt", "stat_philo_predation_success", "stat_philo_predation_fail",
     "stat_philo_predation_gain", "stat_philo_battle_gain", "stat_philo_battle_cost",
     "stat_philo_parent_offspring_reserved", "stat_philo_parent_offspring_real",
+    "stat_philo_decision_hold", "stat_philo_opportunity_loss",
+    "stat_philo_memory_used", "stat_philo_memory_positive",
+    "stat_philo_kant_frame_match", "stat_philo_kant_frame_mismatch",
 ]
 
 PHILO_ACTION_LABELS = {
@@ -290,6 +293,16 @@ with st.sidebar:
     # 色数を減らして分かりやすく
     biome_k = st.selectbox("バイオーム数（少ないほど分かりやすい）", [2, 3, 4], index=1)
     show_biome_edges = st.checkbox("境界を強調する", value=False)
+
+    st.divider()
+    st.subheader("実験環境")
+    environment_scenario = st.selectbox(
+        "環境タイプ",
+        ["手動設定", "安定環境", "不確実環境", "急変環境"],
+        index=0,
+        help="データ収集用の大枠です。手動設定では各スライダーをそのまま使います。急変環境では指定世代以降、豊かなバイオームの位置づけを反転させます。",
+    )
+    environment_shift_generation = st.slider("急変環境：変化が起きる世代", 20, 500, 120, 10)
 
     st.divider()
     st.subheader("資源（最重要）")
@@ -697,6 +710,25 @@ def ensure_ecology_arrays(w):
         if key not in w:
             w[key] = 0
 
+    # チーム別イベント統計。赤=0 / 青=1。低密度化による繁殖ネットワーク崩壊を読むために使う。
+    for key in ["stat_team_birth_reserved", "stat_team_birth_real", "stat_team_death", "stat_team_mate_attempt", "stat_team_mate_success"]:
+        if key not in w or np.asarray(w.get(key, [])).size != 2:
+            w[key] = np.zeros(2, dtype=np.int32)
+        else:
+            w[key] = np.asarray(w[key], dtype=np.int32)
+
+    # ヒューム型の経験参照用。各バイオームで過去に資源が取れたかを、軽い移動平均として持つ。
+    # 個体ごとの長大な記憶ではなく、まずは「環境への経験的重み」が行動に効くかを見るための安全な実装。
+    k_now = int(globals().get('biome_k', 3))
+    mem = np.asarray(w.get("hume_biome_memory", np.zeros(k_now, dtype=np.float32)), dtype=np.float32)
+    if mem.size != k_now:
+        new_mem = np.zeros(k_now, dtype=np.float32)
+        m = min(mem.size, k_now)
+        if m > 0:
+            new_mem[:m] = mem[:m]
+        mem = new_mem
+    w["hume_biome_memory"] = mem
+
     # 哲学遺伝子別のイベント統計。4型ぶんのベクトルで保持する。
     for key in PHILO_STAT_KEYS:
         if key not in w or np.asarray(w.get(key, [])).size != PHILO_TYPE_COUNT:
@@ -984,6 +1016,12 @@ def reset_world():
         "stat_predation_fail": 0,
         "stat_predation_gain": 0,
         "stat_predation_kill": 0,
+        "stat_team_birth_reserved": np.zeros(2, dtype=np.int32),
+        "stat_team_birth_real": np.zeros(2, dtype=np.int32),
+        "stat_team_death": np.zeros(2, dtype=np.int32),
+        "stat_team_mate_attempt": np.zeros(2, dtype=np.int32),
+        "stat_team_mate_success": np.zeros(2, dtype=np.int32),
+        "hume_biome_memory": np.zeros(int(biome_k), dtype=np.float32),
         **{key: np.zeros(PHILO_TYPE_COUNT, dtype=np.int32) for key in PHILO_STAT_KEYS},
         **{key: np.zeros((PHILO_TYPE_COUNT, PHILO_TYPE_COUNT), dtype=np.int32) for key in PHILO_MATRIX_STAT_KEYS},
         "stat_philo_action_counts": np.zeros((PHILO_TYPE_COUNT, len(PHILO_ACTION_LABELS)), dtype=np.int32),
@@ -1013,6 +1051,7 @@ def signature():
         int(philo_weight_descartes), int(philo_weight_hume), int(philo_weight_kant),
         bool(enable_predation), int(predation_gene_init_pct),
         int(predation_hunger_threshold), float(predation_gain_rate), int(predation_fail_cost),
+        str(environment_scenario), int(environment_shift_generation),
     )
 
 if "sig" not in st.session_state:
@@ -1046,6 +1085,12 @@ def phase1_spawn_and_birth():
     resource = w["resource"]
     k = int(biome_k)
     biome_factor = np.linspace(0.6, 1.6, k).astype(np.float32)
+    # 実験環境プリセット：急変環境では途中から「どのバイオームが豊かか」を反転させる。
+    try:
+        if str(environment_scenario) == "急変環境" and int(st.session_state.gen) >= int(environment_shift_generation):
+            biome_factor = biome_factor[::-1].copy()
+    except Exception:
+        pass
 
     local_res = local_resource_map(resource, radius=1)
     local_res01 = np.clip(local_res / max(float(res_max) * 9.0, 1.0), 0.0, 1.0)
@@ -1067,6 +1112,15 @@ def phase1_spawn_and_birth():
         density_factor = np.ones_like(resource_deficit, dtype=np.float32)
 
     prob_map = float(res_spawn_rate) * biome_factor[biome_id] * local_bonus * density_factor * resource_deficit
+    # 不確実環境：資源発生の揺らぎを少し増やす。認識の誤差そのものではなく、環境側の予測しにくさとして入れる。
+    try:
+        if str(environment_scenario) == "不確実環境":
+            noise = rng.normal(1.0, 0.35, size=(H, W)).astype(np.float32)
+            prob_map = prob_map * np.clip(noise, 0.15, 2.0)
+        elif str(environment_scenario) == "安定環境":
+            prob_map = prob_map * 1.05
+    except Exception:
+        pass
     prob_map = np.clip(prob_map, 0.0, 1.0)
     spawn = (rng.random((H, W)) < prob_map) & (resource < int(res_max))
     w["evt_res_spawn"] = spawn.copy()
@@ -1171,6 +1225,9 @@ def phase1_spawn_and_birth():
             w["births"] += 1
             child_philo = philo_index(child.get("gene_philo", NORMAL_PHILO_VALUE))
             w["stat_philo_birth_real"][child_philo] += 1
+            child_team_real = int(child.get("team", 0))
+            if child_team_real in (0, 1):
+                w["stat_team_birth_real"][child_team_real] += 1
 
             # v19：予約だけでなく、実際に空きマスへ置かれた出生の親子フローも記録する。
             ph_a_child = philo_index(child.get("parent_philo_a", NORMAL_PHILO_VALUE))
@@ -1271,6 +1328,10 @@ def phase3_thinking():
 
     k = int(biome_k)
     biome_bonus = np.linspace(0.0, 1.0, k).astype(np.float32)
+    hume_biome_memory = np.asarray(w.get("hume_biome_memory", np.zeros(k, dtype=np.float32)), dtype=np.float32)
+    if hume_biome_memory.size != k:
+        hume_biome_memory = np.zeros(k, dtype=np.float32)
+        w["hume_biome_memory"] = hume_biome_memory
 
     moves = move_offsets(int(move_radius))
     neigh1 = ((-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1))
@@ -1301,6 +1362,8 @@ def phase3_thinking():
         my_str = int(strength[i])
         my_philo = int(gene_philo[i])
         res_mult, danger_mult, battle_bonus, mate_bonus, pred_bonus, escape_bonus = philo_action_modifiers(my_philo)
+        if philo_index(my_philo) == 1 and float(np.max(np.abs(hume_biome_memory))) > 0.05:
+            w["stat_philo_memory_used"][1] += 1
         hunger01 = max(0.0, float(birth_ready_bag) - float(my_bag)) / max(float(birth_ready_bag), 1.0)
 
         # 見えている範囲に資源がないときだけ探索を許す。
@@ -1372,6 +1435,12 @@ def phase3_thinking():
                 + float(think_w_nei) * float(nei_sum)
                 + float(think_w_biome) * float(cell_bio)
             )
+            # ヒューム型：過去に資源を得やすかったバイオームを少し高く評価する。
+            if philo_index(my_philo) == 1:
+                mem_v = float(hume_biome_memory[int(biome_id[ty, tx])])
+                res_score += 1.15 * mem_v
+                if mem_v > 0.10:
+                    w["stat_philo_memory_positive"][1] += 1
 
             # 空腹時は資源探索を強める。哲学遺伝子は「同じ見え方」の評価重みを変える。
             res_score = res_score * float(res_mult) * (1.0 + 0.70 * float(hunger01))
@@ -1526,7 +1595,31 @@ def phase3_thinking():
         if enable_philo_gene and philo_index(my_philo) == 0 and best_a not in (0, 4):
             certainty_threshold = 1.8 + 0.6 * float(hunger01)
             if float(best_u) < certainty_threshold:
+                w["stat_philo_decision_hold"][0] += 1
+                if int(best_a) in (1, 2, 5, 6) and float(best_u) > 0.0:
+                    w["stat_philo_opportunity_loss"][0] += 1
                 best_y, best_x, best_a = y0, x0, 0
+
+        # カント型：生得的な判断枠組みが、実際に選ばれた行動と噛み合ったかを粗く記録する。
+        # 危険が見えているなら回避/待機、資源が見えているなら採取/移動を「枠組みと一致」と見る。
+        if enable_philo_gene and philo_index(my_philo) == 2:
+            danger_here = 0
+            for oy, ox in neigh1:
+                yy = (y0 + oy) % H
+                xx = (x0 + ox) % W
+                j = pos_to_idx.get((yy, xx))
+                if j is not None and j != i and int(team[j]) != my_team:
+                    danger_here += max(1, int(strength[j]) - my_str)
+            if danger_here > 0:
+                if int(best_a) in (0, 4):
+                    w["stat_philo_kant_frame_match"][2] += 1
+                else:
+                    w["stat_philo_kant_frame_mismatch"][2] += 1
+            elif visible_total_res > 0:
+                if int(best_a) in (1, 2):
+                    w["stat_philo_kant_frame_match"][2] += 1
+                elif int(best_a) in (0, 4):
+                    w["stat_philo_kant_frame_mismatch"][2] += 1
 
         # 探索
         if do_explore:
@@ -2093,6 +2186,9 @@ def phase4_action():
 
                 done_pairs.add(pair_key)
                 w["stat_mate_attempt"] += 1
+                team_pair = int(team[a])
+                if team_pair in (0, 1):
+                    w["stat_team_mate_attempt"][team_pair] += 1
                 ph_a = philo_index(gene_philo[a])
                 ph_b = philo_index(gene_philo[b])
                 w["stat_philo_mate_attempt"][ph_a] += 1
@@ -2199,6 +2295,8 @@ def phase4_action():
 
                 child_philo_idx = philo_index(child_gene_philo)
                 w["stat_philo_birth_reserved"][child_philo_idx] += 1
+                if int(child_team) in (0, 1):
+                    w["stat_team_birth_reserved"][int(child_team)] += 1
 
                 # v19：親子フロー。
                 # 「子として増えた型」と「親として子を残した型」を分けることで、
@@ -2212,6 +2310,8 @@ def phase4_action():
                 w["stat_philo_source_to_child_reserved"][child_source_philo, child_philo_idx] += 1
 
                 w["stat_mate_success"] += 1
+                if team_pair in (0, 1):
+                    w["stat_team_mate_success"][team_pair] += 1
                 w["stat_philo_mate_success"][ph_a] += 1
                 w["stat_philo_mate_success"][ph_b] += 1
                 w["evt_mate_pairs"].append(((yi, xi), (int(ys[j]), int(xs[j]))))
@@ -2238,6 +2338,14 @@ def phase4_action():
             w["stat_gathered"] += int(take)
             ph_i = philo_index(w.get("gene_philo", np.full(n, NORMAL_PHILO_VALUE, dtype=np.int8))[i])
             w["stat_philo_gather_gain"][ph_i] += int(take)
+            if ph_i == 1:
+                bidx = int(biome_id[y, x])
+                mem = np.asarray(w.get("hume_biome_memory", np.zeros(int(biome_k), dtype=np.float32)), dtype=np.float32)
+                if mem.size == int(biome_k):
+                    # 成功したバイオームを少し高く、失敗したバイオームを少し低く評価する。
+                    target = float(take)
+                    mem[bidx] = 0.90 * float(mem[bidx]) + 0.10 * target
+                    w["hume_biome_memory"] = mem
             if int(gene[i]) == 0:
                 w["stat_gain_gather_hawk"] += int(take)
             else:
@@ -2360,6 +2468,9 @@ def log_generation():
         "設定:近親回避ON": int(bool(enable_kin_avoidance)),
         "設定:哲学遺伝子ON": int(bool(enable_philo_gene)),
         "設定:捕食ON": int(bool(enable_predation)),
+        "設定:環境タイプ": str(environment_scenario),
+        "設定:急変世代": int(environment_shift_generation),
+        "環境変化後世代（回）": max(0, int(st.session_state.gen) - int(environment_shift_generation)) if str(environment_scenario) == "急変環境" else 0,
 
         # 資源
         "資源総量（単位）": res_total,
@@ -2442,6 +2553,16 @@ def log_generation():
         # 世代イベント（既存 + 追加）
         "出生数（体/世代）": int(w.get("births", 0)),
         "死亡数（体/世代）": int(w.get("deaths", 0)),
+        "赤 出生予約（体/世代）": int(w.get("stat_team_birth_reserved", np.zeros(2, dtype=np.int32))[0]),
+        "青 出生予約（体/世代）": int(w.get("stat_team_birth_reserved", np.zeros(2, dtype=np.int32))[1]),
+        "赤 実出生（体/世代）": int(w.get("stat_team_birth_real", np.zeros(2, dtype=np.int32))[0]),
+        "青 実出生（体/世代）": int(w.get("stat_team_birth_real", np.zeros(2, dtype=np.int32))[1]),
+        "赤 死亡（体/世代）": int(w.get("stat_team_death", np.zeros(2, dtype=np.int32))[0]),
+        "青 死亡（体/世代）": int(w.get("stat_team_death", np.zeros(2, dtype=np.int32))[1]),
+        "赤 交尾試行（回/世代）": int(w.get("stat_team_mate_attempt", np.zeros(2, dtype=np.int32))[0]),
+        "青 交尾試行（回/世代）": int(w.get("stat_team_mate_attempt", np.zeros(2, dtype=np.int32))[1]),
+        "赤 交尾成立（回/世代）": int(w.get("stat_team_mate_success", np.zeros(2, dtype=np.int32))[0]),
+        "青 交尾成立（回/世代）": int(w.get("stat_team_mate_success", np.zeros(2, dtype=np.int32))[1]),
         
         # ===== 遺伝子別（④成立→①出生の成功率）=====
         "タカ 出生予約数（回/世代）": int(w.get("stat_birth_reserved_hawk", 0)),
@@ -2608,6 +2729,12 @@ def log_generation():
             - int(w["stat_philo_upkeep_cost"][ph_i])
             - int(w["stat_philo_battle_cost"][ph_i])
         )
+        row[f"{ph_label} 判断保留（回/世代）"] = int(w["stat_philo_decision_hold"][ph_i])
+        row[f"{ph_label} 機会損失候補（回/世代）"] = int(w["stat_philo_opportunity_loss"][ph_i])
+        row[f"{ph_label} 経験参照（回/世代）"] = int(w["stat_philo_memory_used"][ph_i])
+        row[f"{ph_label} 経験が資源方向を後押し（回/世代）"] = int(w["stat_philo_memory_positive"][ph_i])
+        row[f"{ph_label} 枠組み一致（回/世代）"] = int(w["stat_philo_kant_frame_match"][ph_i])
+        row[f"{ph_label} 枠組み不一致候補（回/世代）"] = int(w["stat_philo_kant_frame_mismatch"][ph_i])
 
     # ===== v19/v20：親子遺伝子フロー・行動選択・チーム内分布 =====
     action_counts = np.asarray(w.get("stat_philo_action_counts", np.zeros((PHILO_TYPE_COUNT, len(PHILO_ACTION_LABELS)), dtype=np.int32)), dtype=np.int32)
@@ -2700,6 +2827,8 @@ def log_generation():
     ]:
         w[k] = 0
     w["stat_move_dist_sum"] = 0.0
+    for key in ["stat_team_birth_reserved", "stat_team_birth_real", "stat_team_death", "stat_team_mate_attempt", "stat_team_mate_success"]:
+        w[key] = np.zeros(2, dtype=np.int32)
     for key in PHILO_STAT_KEYS:
         w[key] = np.zeros(PHILO_TYPE_COUNT, dtype=np.int32)
     for key in PHILO_MATRIX_STAT_KEYS:
@@ -2756,6 +2885,7 @@ def phase5_life_death():
     w["stat_pop_dove_before_death"] = int((gene == 1).sum())
     w["stat_death_hawk"] = int(((gene == 0) & dead).sum())
     w["stat_death_dove"] = int(((gene == 1) & dead).sum())
+    w["stat_team_death"] = np.bincount(team[dead].astype(np.int32), minlength=2).astype(np.int32)
     w["stat_philo_death"] = np.bincount(gene_philo[dead].astype(np.int32), minlength=PHILO_TYPE_COUNT).astype(np.int32)
 
     if dead.any():
