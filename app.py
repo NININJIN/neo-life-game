@@ -1988,6 +1988,7 @@ def phase4_action():
     team = w["team"]
     bag = w["bag"]
     resource = w["resource"]
+    biome_id = w["biome_id"]  # ヒューム型の経験更新で参照するため、行動フェーズ内でも明示的に取得
     direction = w["dir"]
     sex = w["sex"]
 
